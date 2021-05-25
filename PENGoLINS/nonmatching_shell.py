@@ -378,6 +378,5 @@ def hyperelastic_residual(spline, u_hom, z_hom, E, nu, h, dWext, quad_pts=4):
     res = dWint - dWext
     return res
 
-
 if __name__ == "__main__":
     pass

@@ -14,7 +14,7 @@ setup(
     license='GNU LGPLv3',
     author='Han Zhao',
     author_email='',
-    description="Coupling of non-matching isogeometric shell patches",
+    description="Coupling of non-matching isogeometric shells",
     long_description=read("README.md"),
     long_description_content_type="text/markdown",
 )

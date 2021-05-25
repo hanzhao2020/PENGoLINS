@@ -1,5 +1,16 @@
 from PENGoLINS.nonmatching_coupling import *
 
+import os
+import psutil
+
+import matplotlib.pyplot as plt
+
+def memory_usage_psutil():
+    # return the memory usage in MB
+    process = psutil.Process(os.getpid())
+    mem = process.memory_info()[0]/float(1024**2)
+    return mem
+
 SAVE_PATH = "./"
 
 def create_srf(num_el_r, num_el_alpha, p=3, Ri=6, Ro=10, angle_lim=[0,90]):
@@ -110,9 +121,18 @@ for i in range(num_srfs):
 WA_list = []
 WB_list = []
 
-for nonlinear_test_iter in range(len(line_force_ratio)):
-    print("Iteration:", nonlinear_test_iter)
+memory_profile = []
+
+
+print("Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
+print("---------------- Starting loop ------------------")
+
+for nonlinear_test_iter in range(load_step):
+
+    print("-------------- Iteration:", nonlinear_test_iter, "--------------")
     print("Line force density ratio:", line_force_ratio[nonlinear_test_iter])
+
+    print("Inspection 1: Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
 
     for i in range(len(problem.transfer_matrices_list)):
         for j in range(len(problem.transfer_matrices_list[i])):
@@ -136,8 +156,6 @@ for nonlinear_test_iter in range(len(line_force_ratio)):
                     problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
-    
-    problem.penalty_setup()
 
     f = as_vector([Constant(0.), Constant(0.), 
         line_force_ratio[nonlinear_test_iter]*line_force])
@@ -168,11 +186,18 @@ for nonlinear_test_iter in range(len(line_force_ratio)):
     for i in range(problem.num_splines):
         residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
             problem.spline_test_funcs[i], E, nu, h_th, source_terms[i]),]
+    
+    print("Inspection 2: Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
 
-    problem.splines_setup(residuals)
-    problem.nonmatching_setup()
+    problem.assemble_residuals(residuals)
+
+    print("Inspection 3: Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
+
     print("Solving nonlinear non-matching system...")
+
     soln = problem.solve_nonlinear_nonmatching_system(rel_tol=1e-3, max_iter=100)
+
+    print("Inspection 4: Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
 
     for i in range(num_srfs):
         soln_split = problem.spline_funcs[i].split()
@@ -187,6 +212,7 @@ for nonlinear_test_iter in range(len(line_force_ratio)):
                                                      "F"+str(i)+"_3")
                 F_files[i][3] << problem.splines[i].cpFuncs[3]
 
+    print("Inspection 5: Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
 
     xi_list = [array([0.0, 0.]), array([0.0, 1.])]
     spline_ind = 0
@@ -200,3 +226,13 @@ for nonlinear_test_iter in range(len(line_force_ratio)):
         else:
             print("Vertical displacement for point B = {:8.6f}".format(QoI_temp))
             WB_list += [QoI_temp,]
+
+    memory_profile += [memory_usage_psutil(),]
+
+
+plt.figure()
+plt.plot(np.arange(load_step), memory_profile, '-o')
+plt.grid()
+plt.xlabel("Iteration")
+plt.ylabel("Memory usage (MB)")
+plt.show()

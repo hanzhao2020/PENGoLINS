@@ -6,6 +6,19 @@ coupling with multiple spline patches.
 """
 
 from PENGoLINS.nonmatching_shell import *
+from PENGoLINS.contact import *
+
+
+import os
+import psutil
+
+import gc
+
+def memory_usage_psutil():
+    # return the memory usage in MB
+    process = psutil.Process(os.getpid())
+    mem = process.memory_info()[0]/float(1024**2)
+    return mem
 
 class NonMatchingCoupling(object):
     """
@@ -13,7 +26,7 @@ class NonMatchingCoupling(object):
     multiple spline patches.
     """
     def __init__(self, splines, E, h_th, nu, num_field=3, 
-                 transfer_derivative=True):
+                 contact=None, transfer_derivative=True):
         """
         Pass the list of splines and number of element for 
         each spline and other parameters to initialize the 
@@ -41,6 +54,8 @@ class NonMatchingCoupling(object):
         self.spline_funcs = [Function(spline.V) for spline in self.splines]
         self.spline_test_funcs = [TestFunction(spline.V) for spline in \
                                   self.splines]
+
+        self.contact = contact
 
     def create_mortar_meshes(self, num_el_list, mortar_pts_list):
         """
@@ -201,22 +216,64 @@ class NonMatchingCoupling(object):
             self.alpha_d_list += [alpha_d,]
             self.alpha_r_list += [alpha_r,]
 
-    def penalty_setup(self, dx_m_list=None, quadrature_degree=2):
+    def assemble_residuals(self, residuals, point_sources=None, 
+                           point_source_inds=None):
         """
-        Set up penalty terms and corresponding linearizations.
-
+        Assemble PDE residuals and their derivatives in FE function space
+        for all extracted splines. 
+        
         Parameters
         ----------
-        dx_m_list : list of ufl Measure or None
+        residuals: list of ufl Forms
+        point_sources : list of dolfin PointSources, optional
+            Point load for splines.
+        point_source_inds : list of ints, optional
+            Indices of point load for splines.
+        """
+        self.residuals = residuals
+        self.point_sources = point_sources
+        self.point_source_inds = point_source_inds
+        self.Dres = [derivative(self.residuals[i], self.spline_funcs[i]) \
+                     for i in range(self.num_splines)]
+
+        R_FE = []
+        dR_du_FE = []
+        ps_count = 0
+        for i in range(self.num_splines):
+            R_assemble = assemble(self.residuals[i])
+            dR_du_assemble = assemble(self.Dres[i])
+            if point_sources is not None:
+                for j in range(len(self.point_source_inds)):
+                    if i==j:
+                        point_sources[ps_count].apply(R_assemble)
+                        # point_sources[ps_count].apply(dR_du_assemble)
+            R_FE += [v2p(R_assemble),]
+            dR_du_FE += [m2p(dR_du_assemble),]
+        return R_FE, dR_du_FE
+
+    def assemble_nonmatching(self, dx_ms=None, quadrature_degree=2):
+        """
+        Assemble nonmatching contributions in residuals and linearizations.
+
+        dx_ms : list of ufl Measure or None
         quadrature_degree : int, default is 2.
         """
-        self.Rm_IGA = []
-        self.dRm_dum_IGA = []
+
+        Rm_FE = []
+        dRm_dum_FE = []
+        for i in range(self.num_splines):
+            Rm_FE += [zero_petsc_vec(self.spline_funcs[i].vector().size(), comm=worldcomm)]
+            dRm_dum_FE += [[],]
+            for j in range(self.num_splines):
+                dRm_dum_FE[i] += [zero_petsc_mat(self.spline_funcs[i].vector().size(), 
+                                                 self.spline_funcs[j].vector().size(),
+                                                 comm=worldcomm),]
+
         for i in range(self.num_interfaces):
-            if dx_m_list is None:
-                dx_m = None
+            if dx_ms is not None:
+                dx_m = dx_ms[i]
             else:
-                dx_m = dx_m_list[i]
+                dx_m = None
             self.PE = penalty_energy(self.splines[self.mapping_list[i][0]], 
                 self.splines[self.mapping_list[i][1]], self.mortar_meshes[i],
                 self.Vms_control[i], self.dVms_control[i], 
@@ -225,138 +282,80 @@ class NonMatchingCoupling(object):
                 self.alpha_d_list[i], self.alpha_r_list[i], 
                 self.mortar_vars[i][0], self.mortar_vars[i][1], 
                 dx_m=dx_m, quadrature_degree=quadrature_degree)
-
             Rm_list = penalty_differentiation(self.PE, 
                 self.mortar_vars[i][0], self.mortar_vars[i][1])
             Rm = transfer_penalty_differentiation(Rm_list, 
                 self.transfer_matrices_list[i][0], 
                 self.transfer_matrices_list[i][1])
-            self.Rm_IGA += [R2IGA([self.splines[self.mapping_list[i][0]], 
-                self.splines[self.mapping_list[i][1]]], Rm),]
-
             dRm_dum_list = penalty_linearization(Rm_list, 
                 self.mortar_vars[i][0], self.mortar_vars[i][1])
             dRm_dum = transfer_penalty_linearization(dRm_dum_list, 
                 self.transfer_matrices_list[i][0], 
                 self.transfer_matrices_list[i][1])
-            self.dRm_dum_IGA += [dRdu2IGA([self.splines[self.mapping_list\
-                [i][0]], self.splines[self.mapping_list[i][1]]], dRm_dum),]
-
-    # def splines_setup0(self, source_terms, point_sources=None, 
-    #                   point_source_ind=None):
-    #     """
-    #     PDE residuals that using the SVK module for all splines. 
-        
-    #     Parameters
-    #     ----------
-    #     source_terms : list of ufl Forms
-    #     point_sources : list of dolfin PointSources, optional
-    #         Point load for splines.
-    #     point_source_ind : list of ints, optional
-    #         Point load for indices of splines.
-    #     """
-    #     self.source_terms = source_terms
-    #     self.point_sources = point_sources
-    #     self.point_source_ind = point_source_ind
-
-    #     self.R = []
-    #     self.R_IGA = []
-    #     self.dR_du_IGA = []
-    #     for i in range(self.num_splines):
-    #         self.R += [SVK_residual(self.splines[i], self.spline_funcs[i], 
-    #                                self.spline_test_funcs[i], self.E, self.nu, 
-    #                                self.h_th, source_terms[i]),]
-    #         self.R_IGA += [v2p(self.splines[i].assembleVector(self.R[i])),]
-    #         if point_sources is not None:
-    #             for j in range(len(point_source_ind)):
-    #                 if i == point_source_ind[j]:
-    #                     R_assemble = assemble(self.R[i])
-    #                     point_sources[j].apply(R_assemble)
-    #                     self.R_IGA[i] += v2p(self.splines[i].\
-    #                         extractVector(R_assemble))
-    #         self.dR_du_IGA += [m2p(self.splines[i].assembleMatrix(
-    #             derivative(self.R[i], self.spline_funcs[i]))),]
-
-    def splines_setup(self, residuals, point_sources=None, 
-                      point_source_ind=None):
-        """
-        PDE residuals that using the SVK module for all splines. 
-        
-        Parameters
-        ----------
-        residuals: list of ufl Forms
-        point_sources : list of dolfin PointSources, optional
-            Point load for splines.
-        point_source_ind : list of ints, optional
-            Indices of point load for splines.
-        """
-        self.R = residuals
-        self.point_sources = point_sources
-        self.point_source_ind = point_source_ind
-
-        self.R_IGA = []
-        self.dR_du_IGA = []
-        ps_count = 0
-        if point_sources is not None:
-            for i in range(self.num_splines):
-                for j in range(len(self.point_source_ind)):
-                    if i == j:
-                        R_assemble = assemble(self.R[i])
-                        point_sources[ps_count].apply(R_assemble)
-                        self.R_IGA += [v2p(self.splines[i].extractVector(
-                            R_assemble)),]
-                        ps_count += 1
-                    else:
-                        self.R_IGA += [v2p(self.splines[i].assembleVector(
-                            self.R[i])),]
-                self.dR_du_IGA += [m2p(self.splines[i].assembleMatrix(
-                    derivative(self.R[i], self.spline_funcs[i]))),]
-        else:
-            for i in range(self.num_splines):
-                self.R_IGA += [v2p(self.splines[i].assembleVector(self.R[i])),]
-                self.dR_du_IGA += [m2p(self.splines[i].assembleMatrix(
-                    derivative(self.R[i], self.spline_funcs[i]))),]
-           
-    def nonmatching_setup(self):
-        """
-        Set up the system that solves the coupling of non-matching 
-        problem.
-        """
-        self.A_list = []
-        b_list_ = []
-        self.b_list = []
-        self.u_IGA_list = []
-        self.u_list = []
-        self.mat_sizes = [self.dR_du_IGA[i].size[0] for i in \
-                           range(self.num_splines)]
-
-        for i in range(self.num_splines):
-            self.A_list += [[],]
-            for j in range(self.num_splines):
-                self.A_list[i] += [zero_petsc_mat(self.mat_sizes[i], 
-                                                  self.mat_sizes[j]),]
-            b_list_ += [zero_petsc_vec(self.mat_sizes[i]),]
-            self.u_IGA_list += [FE2IGA(self.splines[i], 
-                                       self.spline_funcs[i]),]
-            self.u_list += [v2p(self.u_IGA_list[i]),]
-            self.A_list[i][i] += self.dR_du_IGA[i]
-            b_list_[i] += self.R_IGA[i]
-
-        for i in range(self.num_interfaces):
             for j in range(2):
+                Rm_FE[self.mapping_list[i][j]] += Rm[j]
                 for k in range(2):
-                    self.A_list[self.mapping_list[i][j]]\
-                        [self.mapping_list[i][k]] += self.dRm_dum_IGA[i][j][k]
-                b_list_[self.mapping_list[i][j]] += self.Rm_IGA[i][j]
+                    dRm_dum_FE[self.mapping_list[i][j]]\
+                        [self.mapping_list[i][k]] += dRm_dum[j][k]
 
+        return Rm_FE, dRm_dum_FE
+
+    def setup_nonmatching_system(self, R_FE, dR_du_FE, Rm_FE, dRm_dum_FE):
+        """
+        Add all contributions in FE space (shell residuals, non-matching 
+        contributions, contact forces) together.
+        """
+        print("Inspection 3.3.1: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+
+        # Add spline residuls and non-matching contribution together
         for i in range(self.num_splines):
-            self.b_list += [-b_list_[i],]
+            Rm_FE[i] += R_FE[i]
+            dRm_dum_FE[i][i] += dR_du_FE[i]
 
-        self.A = create_nested_PETScMat(self.A_list)
-        self.u = create_nested_PETScVec(self.u_list)
-        self.b = create_nested_PETScVec(self.b_list)
+        print("Inspection 3.3.2: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
 
-    def solve_linear_nonmatching_system(self, solver=None):
+        # Add contact contributions if it's not None
+        if self.contact is not None:
+            Fcs, Kcs = self.contact.assemble_contact(self.spline_funcs, 
+                                                     output_PETSc=True)
+            for i in range(self.num_splines):
+                Rm_FE[i] += Fcs[i]
+                for j in range(self.num_splines):
+                    dRm_dum_FE[i][j] += Kcs[i][j]
+
+        return Rm_FE, dRm_dum_FE
+
+    def extract_nonmatching_system(self, Rt_FE, dRt_dut_FE):
+        """
+        Extract matrix and vector to IGA space.
+        """
+        print("Inspection 3.4.1: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+        Rt_IGA = []
+        dRt_dut_IGA = []
+        for i in range(self.num_splines):
+            Rt_IGA += [v2p(FE2IGA(self.splines[i], Rt_FE[i])),]
+            dRt_dut_IGA += [[],]
+            for j in range(self.num_splines):
+                dRt_dut_IGA_temp = AT_R_B(m2p(self.splines[i].M), 
+                              dRt_dut_FE[i][j], m2p(self.splines[j].M), 
+                              mode=1)
+                if i==j:
+                    diag = 1
+                else:
+                    diag = 0
+                apply_bcs_mat(self.splines[i], dRt_dut_IGA_temp, self.splines[j], 
+                              diag=diag)
+                dRt_dut_IGA[i] += [dRt_dut_IGA_temp,]
+
+        print("Inspection 3.4.2: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+
+        A = create_nested_PETScMat(dRt_dut_IGA)
+        b = create_nested_PETScVec(Rt_IGA)
+
+        return b, A
+
+
+    def solve_linear_nonmatching_system(self, A, b, solver=None):
         """
         Solve the linear non-matching system.
 
@@ -368,11 +367,20 @@ class NonMatchingCoupling(object):
         -------
         self.spline_funcs : list of dolfin functions
         """
-        solve_nested_mat(self.A, self.u, self.b, solver=solver)
+        u_IGA_list = []
+        u_list = []
+        for i in range(self.num_splines):
+            u_IGA_list += [FE2IGA(self.splines[i], self.spline_funcs[i]),]
+            u_list += [v2p(u_IGA_list[i]),]
+
+        u = create_nested_PETScVec(u_list)
+
+        solve_nested_mat(A, u, -b, solver=solver)
+        
         for i in range(self.num_splines):
             v2p(self.spline_funcs[i].vector()).ghostUpdate()
             self.spline_funcs[i].vector().set_local(IGA2FE(
-                self.splines[i], self.u_IGA_list[i])[:])
+                self.splines[i], u_IGA_list[i])[:])
         return self.spline_funcs
 
     def solve_nonlinear_nonmatching_system(self, solver=None, ref_error=None,
@@ -393,7 +401,22 @@ class NonMatchingCoupling(object):
         self.rel_norm_list = []
 
         for newton_iter in range(max_iter+1):
-            current_norm = self.b.norm()
+
+            print("Inspection 3.1: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+            R_FE, dR_du_FE = self.assemble_residuals(self.residuals)
+
+            print("Inspection 3.2: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+            Rm_FE, dRm_dum_FE = self.assemble_nonmatching()
+
+            print("Inspection 3.3: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+            Rt_FE, dRt_dut_FE = self.setup_nonmatching_system(R_FE, dR_du_FE, Rm_FE, dRm_dum_FE)
+
+            print("Inspection 3.4: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+            b, A = self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
+
+            print("Inspection 3.5: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+
+            current_norm = b.norm()
 
             if newton_iter==0 and ref_error is None:
                 ref_error = current_norm
@@ -415,6 +438,8 @@ class NonMatchingCoupling(object):
                 raise StopIteration("Nonlinear solver failed to converge "
                     "in {} iterations.".format(max_iter))
 
+            print("Inspection 3.6: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+
             du_list = []
             du_IGA_list = []
             du_IGA_petsc_list = []
@@ -424,7 +449,9 @@ class NonMatchingCoupling(object):
                 du_IGA_petsc_list += [v2p(du_IGA_list[i]),]
             du = create_nested_PETScVec(du_IGA_petsc_list)
 
-            solve_nested_mat(self.A, du, self.b)
+            solve_nested_mat(A, du, -b, solver=solver)
+
+            print("Inspection 3.7: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
 
             for i in range(self.num_splines):
                 v2p(du_list[i].vector()).ghostUpdate()
@@ -439,178 +466,108 @@ class NonMatchingCoupling(object):
                             func2v(self.spline_funcs[self.mapping_list[i][j]]), 
                             func2v(self.mortar_vars[i][j][k]))
 
-            self.penalty_setup()
-            self.splines_setup(self.R, self.point_sources, 
-                               self.point_source_ind)
-            self.nonmatching_setup()
+            print("Inspection 3.8: Memory usage: {:10.4f} MB.\n".format(memory_usage_psutil()))
+
+            gc.collect()
 
         return self.spline_funcs
 
-    def nonmatching_residual(self):
-        """
-        Compute the residual of the non-matching system.
-        """
-        self.penalty_setup()
-        self.R_IGA = []
-        ps_count = 0
-        if self.point_sources is not None:
-            for i in range(self.num_splines):
-                for j in range(len(self.point_source_ind)):
-                    if i == j:
-                        R_assemble = assemble(self.R[i])
-                        self.point_sources[ps_count].apply(R_assemble)
-                        self.R_IGA += [v2p(self.splines[i].extractVector(
-                            R_assemble)),]
-                        ps_count += 1
-                    else:
-                        self.R_IGA += [v2p(self.splines[i].assembleVector(
-                            self.R[i])),]
-        else:
-            for i in range(self.num_splines):
-                self.R_IGA += [v2p(self.splines[i].assembleVector(self.R[i])),]
+# # TODO: The class ``NonMatchingNonlineraProblem`` failed to converge for 
+# #       nearly linear problem even though the residual and Jacobian are
+# #       correct (verified in a manually written Newtion's iteration).
+# class NonMatchingNonlinearProblem(NonlinearProblem):
+#     """
+#     A customed subclass of dolfin ``NonlinearProlem`` to make use of 
+#     ``PETScSNESSolver``.
+#     """
+#     def __init__(self, problem, **kwargs):
+#         """
+#         Initilization of ``NonMatchingNonlinearProblem``.
 
-        b_list_ = []
-        self.b_list = []
+#         Parameters
+#         ----------
+#         problem : instance of ``NonMatchingCoupling``
+#         """
+#         super(NonMatchingNonlinearProblem, self).__init__(**kwargs)
+#         self.problem = problem
 
-        for i in range(self.num_splines):
-            b_list_ += [zero_petsc_vec(self.mat_sizes[i]),]
-            b_list_[i] += self.R_IGA[i]
+#     def form(self, A, P, b, x):
+#         """
+#         Update solution.
+#         """
+#         print("Running self.form")
+#         self.problem.assemble_residuals(self.problem.residuals,
+#             self.problem.point_sources, self.problem.point_source_inds)
+#         self.problem.assemble_nonmatching()
+#         self.problem.setup_nonmatching_system()
+#         self.problem.extract_nonmatching_system()
 
-        for i in range(self.num_interfaces):
-            for j in range(2):
-                b_list_[self.mapping_list[i][j]] += self.Rm_IGA[i][j]
+#         # Update solution in IGA function space
+#         x.vec().copy(result=self.problem.u)
+#         print("x norm:", x.vec().norm())
+#         # print("u norm:", self.problem.u.norm())
+#         for i in range(self.problem.num_splines):
+#             v2p(self.problem.spline_funcs[i].vector()).ghostUpdate()
+#             self.problem.spline_funcs[i].vector().set_local(IGA2FE(
+#                     self.problem.splines[i], 
+#                     self.problem.u_IGA_list[i])[:])
+#         # Update mortar mesh dolfin Functions
+#         for i in range(len(self.problem.transfer_matrices_list)):
+#             for j in range(len(self.problem.transfer_matrices_list[i])):
+#                 for k in range(len(self.problem.transfer_matrices_list[i][j])):
+#                     A_x_b(self.problem.transfer_matrices_list[i][j][k], 
+#                         func2v(self.problem.spline_funcs[
+#                             self.problem.mapping_list[i][j]]), 
+#                         func2v(self.problem.mortar_vars[i][j][k]))
 
-        for i in range(self.num_splines):
-            self.b_list += [-b_list_[i],]
+#     def F(self, b, x):
+#         """
+#         Update residual.
+#         """
+#         print("Running self.F")
+#         b.vec().setSizes(self.problem.b.getSizes())
+#         b.vec().setUp()
+#         b.vec().assemble()
+#         self.problem.b.copy(result=b.vec())
+#         print("Res norm:", self.problem.b.norm())
+#         return b
 
-        b_ = create_nested_PETScVec(self.b_list)
-        self.b = zero_petsc_vec(b_.size)
-        self.b.setArray(b_.getArray())
-        return self.b
+#     def J(self, A, x):
+#         """
+#         Update Jacobian.
+#         """
+#         print("Running self.J")
+#         A.mat().setSizes(self.problem.A.getSizes())
+#         A.mat().setUp()
+#         A.mat().assemble()
+#         # print("Size of nonmatching.A", self.problem.A.getSizes())
+#         self.problem.A.copy(result=A.mat())
+#         return A
 
-    def nonmatching_Jacobian(self):
-        """
-        Compute the Jacobian of non-matching system.
-        """
-        self.penalty_setup()
-        self.dR_du_IGA = []
-        for i in range(self.num_splines):
-            self.dR_du_IGA += [m2p(self.splines[i].assembleMatrix(
-                derivative(self.R[i], self.spline_funcs[i]))),]
-        self.A_list = []
+# class NonMatchingNonlinearSolver:
+#     """
+#     Nonlinear solver for the non-matching problem.
+#     """
+#     def __init__(self, nonlinear_problem, solver):
+#         """
+#         Initilization of ``NonMatchingNonlinearSolver``.
 
-        for i in range(self.num_splines):
-            self.A_list += [[],]
-            for j in range(self.num_splines):
-                self.A_list[i] += [zero_petsc_mat(self.mat_sizes[i], 
-                                                  self.mat_sizes[j]),]
-            self.A_list[i][i] += self.dR_du_IGA[i]
+#         Parameters
+#         ----------
+#         nonlinear_problem : instance of ``NonMatchingNonlinearProble``
+#         solver : PETSc SNES Solver
+#         """
+#         self.nonlinear_problem = nonlinear_problem
+#         self.solver = solver 
 
-        for i in range(self.num_interfaces):
-            for j in range(2):
-                for k in range(2):
-                    self.A_list[self.mapping_list[i][j]]\
-                        [self.mapping_list[i][k]] += self.dRm_dum_IGA[i][j][k]
-
-        self.A = create_nested_PETScMat(self.A_list)
-        self.A.convert('seqaij')
-        return self.A
-
-# TODO: The class ``NonMatchingNonlineraProblem`` failed to converge for 
-#       nearly linear problem even though the residual and Jacobian are
-#       correct (verified in a manually written Newtion's iteration).
-class NonMatchingNonlinearProblem(NonlinearProblem):
-    """
-    A customed subclass of dolfin ``NonlinearProlem`` to make use of 
-    ``PETScSNESSolver``.
-    """
-    def __init__(self, problem, **kwargs):
-        """
-        Initilization of ``NonMatchingNonlinearProblem``.
-
-        Parameters
-        ----------
-        problem : instance of ``NonMatchingCoupling``
-        """
-        super(NonMatchingNonlinearProblem, self).__init__(**kwargs)
-        self.problem = problem
-
-    def form(self, A, P, b, x):
-        """
-        Update solution.
-        """
-        print("Running self.form")
-        # Update solution in IGA function space
-        x.vec().copy(result=self.problem.u)
-        print("x norm:", x.vec().norm())
-        # print("u norm:", self.problem.u.norm())
-
-        for i in range(self.problem.num_splines):
-            v2p(self.problem.spline_funcs[i].vector()).ghostUpdate()
-            self.problem.spline_funcs[i].vector().set_local(IGA2FE(
-                    self.problem.splines[i], 
-                    self.problem.u_IGA_list[i])[:])
-        # Update mortar mesh dolfin Functions
-        for i in range(len(self.problem.transfer_matrices_list)):
-            for j in range(len(self.problem.transfer_matrices_list[i])):
-                for k in range(len(self.problem.transfer_matrices_list[i][j])):
-                    A_x_b(self.problem.transfer_matrices_list[i][j][k], 
-                        func2v(self.problem.spline_funcs[
-                            self.problem.mapping_list[i][j]]), 
-                        func2v(self.problem.mortar_vars[i][j][k]))
-
-    def F(self, b, x):
-        """
-        Update residual.
-        """
-        print("Running self.F")
-        res = self.problem.nonmatching_residual()
-        b.vec().setSizes(self.problem.b.getSizes())
-        b.vec().setUp()
-        b.vec().assemble()
-        self.problem.b.copy(result=b.vec())
-        print("Res norm:", self.problem.b.norm())
-        return b
-
-    def J(self, A, x):
-        """
-        Update Jacobian.
-        """
-        print("Running self.J")
-        Dres = self.problem.nonmatching_Jacobian()
-        A.mat().setSizes(self.problem.A.getSizes())
-        A.mat().setUp()
-        A.mat().assemble()
-        # print("Type of nonmatching.A", type(self.problem.A), "---",
-        #     self.problem.A.type)
-        # print("Size of nonmatching.A", self.problem.A.getSizes())
-        self.problem.A.copy(result=A.mat())
-        return A
-
-class NonMatchingNonlinearSolver:
-    """
-    Nonlinear solver for the non-matching problem.
-    """
-    def __init__(self, nonlinear_problem, solver):
-        """
-        Initilization of ``NonMatchingNonlinearSolver``.
-
-        Parameters
-        ----------
-        nonlinear_problem : instance of ``NonMatchingNonlinearProble``
-        solver : PETSc SNES Solver
-        """
-        self.nonlinear_problem = nonlinear_problem
-        self.solver = solver 
-
-    def solve(self):
-        """
-        Solve the non-matching nonlinear problem.
-        """
-        temp_vec = PETScVector(self.nonlinear_problem.problem.u.copy())
-        print("temp_vec norm:", norm(temp_vec))
-        self.solver.solve(self.nonlinear_problem, temp_vec)
-        temp_vec.vec().copy(result=self.nonlinear_problem.problem.u)
+#     def solve(self):
+#         """
+#         Solve the non-matching nonlinear problem.
+#         """
+#         temp_vec = PETScVector(self.nonlinear_problem.problem.u.copy())
+#         print("temp_vec norm:", norm(temp_vec))
+#         self.solver.solve(self.nonlinear_problem, temp_vec)
+#         temp_vec.vec().copy(result=self.nonlinear_problem.problem.u)
 
 
 if __name__ == "__main__":

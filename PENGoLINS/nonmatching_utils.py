@@ -224,6 +224,8 @@ def apply_bcs_mat(spline, A, spline2=None, diag=1):
     A : dolfin Matrix, dolfin PETScMatrix, PETSc.Mat or None
     spline2 : ExtractedSpline or None, optional
     diag : int, optional, default is 1
+        Value put in all diagonals of eliminated rows 
+        (0 will even eliminate diagonal entry)
     """
     A_PETSc = arg2m(A)
 
@@ -277,9 +279,12 @@ def FE2IGA(spline, u_FE, applyBCs=True):
     u_IGA : dolfin PETScVector
     """
     # return multTranspose(spline.M, u_FE.vector())
-    M_PETSc = m2p(spline.M)
-    u_IGA_PETSc = AT_x(M_PETSc, u_FE)
-    u_IGA = PETScVector(u_IGA_PETSc)
+
+    # M_PETSc = m2p(spline.M)
+    # u_IGA_PETSc = AT_x(M_PETSc, u_FE)
+    # u_IGA = PETScVector(u_IGA_PETSc)
+
+    u_IGA = PETScVector(AT_x(m2p(spline.M), u_FE))
     if applyBCs:
         apply_bcs_vec(spline, u_IGA)
     return u_IGA
@@ -299,7 +304,7 @@ def zero_list(row, col):
     """
     return [[0 for i in range(col)] for j in range(row)]
 
-def zero_petsc_vec(num_el, vec_type='seq'):
+def zero_petsc_vec(num_el, vec_type='seq', comm=worldcomm):
     """
     Create zero PETSc vector of size ``num_el``.
 
@@ -313,14 +318,14 @@ def zero_petsc_vec(num_el, vec_type='seq'):
     -------
     v : petsc4py.PETSc.Vec
     """
-    v = PETSc.Vec().create()
+    v = PETSc.Vec().create(comm)
     v.setSizes(num_el)
     v.setType(vec_type)
     v.setUp()
     v.assemble()
     return v
 
-def zero_petsc_mat(row, col, mat_type='seqaij'):
+def zero_petsc_mat(row, col, mat_type='seqaij', comm=worldcomm):
     """
     Create zeros PETSc matrix with shape (``row``, ``col``).
 
@@ -335,7 +340,7 @@ def zero_petsc_mat(row, col, mat_type='seqaij'):
     -------
     A : petsc4py.PETSc.Mat
     """
-    A = PETSc.Mat().create()
+    A = PETSc.Mat().create(comm)
     A.setSizes([row, col])
     A.setType(mat_type)
     A.setUp()
@@ -414,13 +419,16 @@ def transfer_penalty_differentiation(R_list, A1_list, A2_list):
     size = [0,0]
     size[0] = m2p(A1_list[0]).size[1]
     size[1] = m2p(A2_list[0]).size[1]
-    for i in range(2):
-        R[i] = PETScVector(zero_petsc_vec(size[i]))
-
     A_list = [A1_list, A2_list]
+
+    for i in range(2):
+        # R[i] = PETScVector(zero_petsc_vec(size[i]))
+        R[i] = zero_petsc_vec(size[i], comm=worldcomm)
+    
     for i in range(len(R_list)):
         for j in range(len(R_list[i])):
-            R[i] += multTranspose(A_list[i][j], assemble(R_list[i][j]))
+            # R[i] += multTranspose(A_list[i][j], assemble(R_list[i][j]))
+            R[i] += AT_x(A_list[i][j], assemble(R_list[i][j]))
 
     return R
 
@@ -448,7 +456,7 @@ def transfer_penalty_linearization(dR_du_list, A1_list, A2_list):
     size[1] = m2p(A2_list[0]).size[1]
     for i in range(2):
         for j in range(2):
-            dR_du[i][j] = zero_petsc_mat(size[i], size[j])
+            dR_du[i][j] = zero_petsc_mat(size[i], size[j], comm=worldcomm)
 
     A_list = [A1_list, A2_list]
     for i in range(2):
@@ -474,7 +482,7 @@ def R2IGA(splines, R):
     """
     R_IGA = [0,0]
     for i in range(len(R_IGA)):
-        R_IGA[i] = FE2IGA(splines[i], R[i]).vec()
+        R_IGA[i] = v2p(FE2IGA(splines[i], R[i]))
     return R_IGA
 
 def dRdu2IGA(splines, dR_du):
@@ -498,7 +506,7 @@ def dRdu2IGA(splines, dR_du):
             apply_bcs_mat(splines[i], dRdu_IGA[i][j], splines[j], diag=0)
     return dRdu_IGA
 
-def create_nested_PETScVec(v_list):
+def create_nested_PETScVec(v_list, comm=worldcomm):
     """
     Create nested petsc4py.PETSc.Vec from ``v_list``.
 
@@ -511,11 +519,12 @@ def create_nested_PETScVec(v_list):
     v : petsc4py.PETSc.Vec
     """
     v = PETSc.Vec()
-    v.createNest(v_list)
+    v.createNest(v_list, comm=comm)
     v.setUp()
+    v.assemble()
     return v
 
-def create_nested_PETScMat(A_list):
+def create_nested_PETScMat(A_list, comm=worldcomm):
     """
     Create nested PETSc.Mat from ``A_list``.
 
@@ -528,8 +537,9 @@ def create_nested_PETScMat(A_list):
     A : petsc4py.PETSc.Mat
     """
     A = PETSc.Mat()
-    A.createNest(A_list)
+    A.createNest(A_list, comm=comm)
     A.setUp()
+    A.assemble()
     return A
 
 def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, rtol=1e-15):
