@@ -27,11 +27,11 @@ def ikNURBS2tIGArspline(ikNURBS, num_field=3, quad_deg_const=4,
     """
     quad_deg = ikNURBS.degree[0]*quad_deg_const
     spline_mesh = NURBSControlMesh(ikNURBS, useRect=False)
-    spline_generator = EqualOrderSpline(num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
     if setBCs is not None:
         setBCs(spline_generator)
-    # DIR = SAVE_PATH+"spline_data/extraction_"+str(index)+"_init"
-    # spline_generator.writeExtraction(DIR)
+    DIR = SAVE_PATH+"spline_data/extraction_"+str(index)+"_init"
+    spline_generator.writeExtraction(DIR)
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
@@ -87,7 +87,6 @@ v_num_insert = [int(i*v_ref_level) for i in v_num_insert]
 
 reconstructed_srfs = []
 ikNURBS_srfs = []
-spline_el_lengths = []
 for i in range(num_srfs):
     recon_bs_surface = reconstruct_occ_Bspline_surface(
                        wing_surfaces[bs_ind[i]], u_num_eval=num_pts_eval[i], 
@@ -103,7 +102,6 @@ for i in range(num_srfs):
     for m in range(num_row):
         for n in range(num_col):
             control_coord[m,n,:] = control_w[m,n,:3]/control_w[m,n,3]
-    spline_el_lengths += [np.average(mesh_element_length(control_coord))]
 
 # for i in range(num_srfs):
 #     ik_srfs_filenames = "evtol_wing"+str(i)+".vtk"
@@ -160,7 +158,7 @@ for i in range(num_srfs):
         spline = ikNURBS2tIGArspline(ikNURBS_srfs[i])
         splines += [spline,]
 
-problem = NonMatchingCoupling(splines, E, h_th, nu)
+problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 mortar_nels = []
 mortar_pts = []
 for i in range(num_interfaces):
@@ -184,13 +182,11 @@ mortar_meshes_locations_newton = []
 
 for i in range(num_interfaces):
     # print("physical_locations index:", i)
-    # print("Side 0")
     parametric_location0 = interface_parametric_location(
         problem.splines[mapping_list[i][0]], problem.mortar_meshes[i], 
         interface_phy_coords_proj[i][0], max_iter=max_iter, rtol=rtol, 
         print_res=print_res, interp_phy_loc=interp_phy_loc, r=r, 
         edge_tol=edge_tol)
-    # print("Side 1")
     parametric_location1 = interface_parametric_location(
         problem.splines[mapping_list[i][1]], problem.mortar_meshes[i], 
         interface_phy_coords_proj[i][1], max_iter=max_iter, rtol=rtol, 
@@ -202,11 +198,8 @@ for i in range(num_interfaces):
 print("Setting up mortar meshes...")
 problem.mortar_meshes_setup(mapping_list, mortar_meshes_locations_newton, 
                             penalty_coefficient)
-problem.penalty_setup()
 
-print("Setting up splines...")
 # Distributive downward load
-# loads = [f0, f1, f0, f1, f0, f1, f0, f0]
 loads = [f1]*len(bs_ind)
 right_srf_ind = 1
 source_terms = []
@@ -219,16 +212,16 @@ for i in range(len(splines)):
 
 # ps0 = PointSource(problem.splines[right_srf_ind].V.sub(2), 
 #                   Point(1.,1.), -tip_load)
-problem.splines_setup(residuals) #, [ps0,], [right_srf_ind,])
-problem.nonmatching_setup()
+problem.set_residuals(residuals) #, [ps0,], [right_srf_ind,])
 
-print("Solving the system...")
+print("Solving linear non-matching system...")
 problem.solve_linear_nonmatching_system()
 
 print("Saving results...")
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
-                 save_cpfuncs=True, save_path=SAVE_PATH)
+                 save_path=SAVE_PATH, folder="results_temp1/", 
+                 save_cpfuncs=True, comm=selfcomm)
     
 xi = array([1, 1])
 QoI = -problem.spline_funcs[right_srf_ind](xi)[2]\

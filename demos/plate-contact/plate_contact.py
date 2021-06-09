@@ -1,9 +1,19 @@
 from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.contact import *
 from tIGAr.timeIntegration import *
 
-SAVE_PATH = "./"
+import os
+import psutil
 
-def create_surf(pts,num_el0, num_el1,p):
+import matplotlib.pyplot as plt
+
+def memory_usage_psutil():
+    # return the memory usage in MB
+    process = psutil.Process(os.getpid())
+    mem = process.memory_info()[0]/float(1024**2)
+    return mem
+
+def create_surf(pts, num_el0, num_el1,p):
     knots0 = np.linspace(0,1,num_el0+1)[1:-1]
     knots1 = np.linspace(0,1,num_el1+1)[1:-1]
     L1 = line(pts[0],pts[1])
@@ -16,61 +26,66 @@ def create_surf(pts,num_el0, num_el1,p):
     srf.refine(1,knots1)
     return srf
 
-def create_spline(srf, num_field=3, BCs=[]):
+def create_spline(srf, num_field=3, BCs=[0,1]):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
     spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
 
     for field in range(num_field):
-        for BC in BCs:
-            direction = BC[0]
-            side = BC[1]
-            scalar_spline = spline_generator.getScalarSpline(field)
-            side_dofs = scalar_spline.getSideDofs(direction, side, nLayers=2)
-            spline_generator.addZeroDofs(field, side_dofs)
+        scalar_spline = spline_generator.getScalarSpline(field)
+        for para_direction in range(2):
+            if BCs[para_direction] == 1:
+                side = 0 # only consider fixing the 0 side
+                side_dofs = scalar_spline.getSideDofs(para_direction, 
+                                                      side, nLayers=2)
+                spline_generator.addZeroDofs(field, side_dofs)
 
-    quad_deg = 2*srf.degree[0]
+    quad_deg = 3*srf.degree[0]
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
-nu = Constant(0.5) # incompressible material
-mu = Constant(1e4)
-E = mu*2*(1+nu)
-h_th = Constant(0.03)
-L = 2.
+E = Constant(21e6)
+nu = Constant(0.0)
+h_th = Constant(0.05)
+load_mag = Constant(1e3) # N/m
+f = as_vector([Constant(0.), Constant(0.), -load_mag])
+f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
 
-pts0 = [[0., 0., 0.], [L/2, 0., 0.],
-        [0., L/2, 0.], [L/2, L/2, 0.]]
-pts1 = [[L/2, 0., 0.], [L, 0., 0.],
-        [L/2, L/2, 0.], [L, L/2, 0.]]
-pts2 = [[0., L/2, 0.], [L/2, L/2, 0.],
-        [0., L, 0.], [L/2, L, 0.]]
-pts3 = [[L/2, L/2, 0.], [L, L/2, 0.],
-        [L/2, L, 0.], [L, L, 0.]]
-pts_list = [pts0, pts1, pts2, pts3]
-num_srfs = len(pts_list)
-
-num_el_list = [8,]
-QoI_list = []
-QoI_normal_list = []
-
-num_el = num_el_list[0]
-penalty_coefficient = 1.0e3
-print("\nPenalty coefficient:", penalty_coefficient)
-
-print("Creating geometry...")
+L = 1.
+w = 1.
+h0 = -0.1
+h1 = -0.2
 p = 3
-total_dofs = 0
-nurbs_srfs = []
+
+pts0 = [[0., 0., 0.], [w/2, 0., 0.],\
+        [0., L, 0.], [w/2, L, 0.]]
+
+pts1 = [[w/2, 0., 0.], [w, 0., 0.],\
+        [w/2, L, 0.], [w, L, 0.]]
+
+pts2 = [[0., 0., h0], [w/2, 0., h0],\
+        [0., L, h0], [w/2, L, h0]]
+
+pts3 = [[w/2, 0., h0], [w, 0., h0],\
+        [w/2, L, h0], [w, L, h0]]
+
+pts4 = [[0., 0., h1], [w/2, 0., h1],\
+        [0., L, h1], [w/2, L, h1]]
+
+pts5 = [[w/2, 0., h1], [w, 0., h1],\
+        [w/2, L, h1], [w, L, h1]]
+
+pts_list = [pts0, pts1, pts2, pts3, pts4, pts5]
+num_srfs = len(pts_list)
+num_el_list = [i+6 for i in range(num_srfs)]
+
+srfs = []
 splines = []
-BCs = [[[0,0],[1,0]],
-       [[0,1],[1,0]],
-       [[0,0],[1,1]],
-       [[0,1],[1,1]]]
+BCs = [0,1]
 for i in range(num_srfs):
-    nurbs_srfs += [create_surf(pts_list[i], num_el+i, num_el+i, p),]
-    splines += [create_spline(nurbs_srfs[i], BCs=BCs[i]),]
-    total_dofs += nurbs_srfs[i].control.shape[0]*nurbs_srfs[i].control.shape[1]*3
-print("Total DoFs:", total_dofs)
+    srfs += [create_surf(pts_list[i], num_el_list[i], num_el_list[i], p)]
+    splines += [create_spline(srfs[i], BCs=BCs)]
+
+penalty_coefficient = 1e3
 
 u_file_names = []
 u_files = []
@@ -83,17 +98,35 @@ for i in range(num_srfs):
     F_files += [[],]
     for j in range(3):
         # print("J:", j)
-        u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i)+"_"+str(j)+"_file.pvd",]
+        u_file_names[i] += [SAVE_PATH+"results_temp2/"+"u"+str(i)+"_"+str(j)+"_file.pvd",]
         u_files[i] += [File(selfcomm, u_file_names[i][j]),]
-        F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)+"_"+str(j)+"_file.pvd",]
+        F_file_names[i] += [SAVE_PATH+"results_temp2/"+"F"+str(i)+"_"+str(j)+"_file.pvd",]
         F_files[i] += [File(selfcomm, F_file_names[i][j]),]
         if j == 2:
-            F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)+"_3_file.pvd",]
+            F_file_names[i] += [SAVE_PATH+"results_temp2/"+"F"+str(i)+"_3_file.pvd",]
             F_files[i] += [File(selfcomm, F_file_names[i][3]),]
 
-problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
+R_self = 0.05
+r_max = 0.015
+k_contact = 1e11
 
-mapping_list = [[0,1], [2,3], [0,2], [1,3]]
+def phi_prime(r):
+    res = 0
+    if r < r_max:
+        res = -k_contact*(r_max - r)
+    return res
+
+def phi_double_prime(r):
+    res = 0
+    if r < r_max:
+        res = k_contact
+    return res
+
+contact = ShellContactContext(splines, R_self, r_max, phi_prime, phi_double_prime)
+
+problem = NonMatchingCoupling(splines, E, h_th, nu, contact=contact, comm=selfcomm)
+
+mapping_list = [[0,1], [2,3], [4,5]]
 num_mortar_mesh = len(mapping_list)
 
 mortar_nels = []
@@ -105,12 +138,9 @@ h_mortar_locs = [np.array([[0., 1.], [1., 1.]]),
                  np.array([[0., 0.], [1., 0.]])]
 
 for i in range(num_mortar_mesh):
-    mortar_nels += [(num_el+i+2)*2,]
+    mortar_nels += [(num_el_list[i*2+1])*2,]
     mortar_pts += [np.array([[0., 0.], [0., 1.]]),]
-    if i < 2:
-        mortar_mesh_locations += [v_mortar_locs,]
-    else:
-        mortar_mesh_locations += [h_mortar_locs,]
+    mortar_mesh_locations += [v_mortar_locs,]
 
 problem.create_mortar_meshes(mortar_nels, mortar_pts)
 problem.create_mortar_funcs('CG',1)
@@ -120,7 +150,7 @@ problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
 
 # Time integration part
 rho_inf = Constant(0.5)
-delta_t = Constant(0.005)
+delta_t = Constant(0.0002)
 dens = Constant(10.)
 y_old_hom_list = []
 ydot_old_hom_list = []
@@ -139,10 +169,13 @@ for i in range(problem.num_splines):
     y_alpha_list += [problem.splines[i].rationalize(time_integrator_list[i].x_alpha())]
     ydot_alpha_list += [problem.splines[i].rationalize(time_integrator_list[i].xdot_alpha())]
     yddot_alpha_list += [problem.splines[i].rationalize(time_integrator_list[i].xddot_alpha())]
-    time_integrator_list[i].xdot_old.interpolate(Expression(("0.0","0.0","2.0"),degree=1))
+    if i == 0 or i == 1:
+        time_integrator_list[i].xdot_old.interpolate(Expression(("0.0","0.0","2.0"),degree=1))
+    else:
+        time_integrator_list[i].xdot_old.interpolate(Expression(("0.0","0.0","0.0"),degree=1))
 
-total_steps = 50
-
+total_steps = 500
+memory_profile = []
 for time_iter in range(total_steps):
     print("--- Step:", time_iter, ", time:", time_integrator_list[i].t, "---")
     # Save initial zero solution
@@ -159,19 +192,15 @@ for time_iter in range(total_steps):
                     problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
-
     source_terms = []
     res_list = []
     dMass_list = []
     residuals = []
     load_mag = 1e3
+    f_list = [f, f, f0, f0, f0, f0]
     for i in range(problem.num_splines):
-        # SVK model
-        # X = problem.splines[i].spatialCoordinates()
-        # load = load_mag*sin(X[0]*pi/L)*sin(X[1]*pi/L)  # sin load
-        load = Constant(load_mag)
-        f = as_vector([Constant(0.), Constant(0.), load])
-        source_terms += [inner(f, problem.splines[i].rationalize(\
+        # # SVK model
+        source_terms += [inner(f_list[i], problem.splines[i].rationalize(\
             problem.spline_test_funcs[i]))*problem.splines[i].dx,]
         res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
                       *SVK_residual(problem.splines[i], problem.spline_funcs[i], 
@@ -179,13 +208,9 @@ for time_iter in range(total_steps):
         dMass_list += [dens*h_th*inner(yddot_alpha_list[i], 
             problem.spline_test_funcs[i])*problem.splines[i].dx,]
         residuals += [res_list[i]+dMass_list[i]]
-
-    problem.set_residuals(residuals)
-
-    print("Solving nonlinear non-matching problem...")
+    problem.set_residuals(residuals)    
     problem.solve_nonlinear_nonmatching_system(rel_tol=1e-3, max_iter=100,
                                                zero_mortar_funcs=False)
-
     for i in range(problem.num_splines):
         soln_split = problem.spline_funcs[i].split()
         for j in range(3):
@@ -198,14 +223,22 @@ for time_iter in range(total_steps):
                 problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
                                                      "F"+str(i)+"_3")
                 F_files[i][3] << problem.splines[i].cpFuncs[3]
-
         time_integrator_list[i].advance()
+    print("Inspection: Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
+    memory_profile += [memory_usage_psutil(),]
 
-xi = [np.array([1.,1.]), np.array([0.,1.]), 
-      np.array([1.,0.]), np.array([0.,0.])]
-for i in range(problem.num_splines):
-    QoI = problem.spline_funcs[i](xi[i])[2]\
-         /splines[0].cpFuncs[3](xi[i])
-    QoI_list += [QoI,]
-    print("Vertical displacement at center for patch {}: {:10.8f}."\
-          .format(i, QoI))
+
+print("Memory usage increases: {:10.4f} MB".format(memory_profile[-1]-memory_profile[0]))
+
+plt.figure()
+plt.plot(np.arange(len(memory_profile)), memory_profile, '-o')
+plt.grid()
+plt.xlabel("Iteration")
+plt.ylabel("Memory usage (MB)")
+plt.show()
+
+for i in range(0, problem.num_splines, 2):
+    xi = np.array([1.,1.])
+    QoI = -problem.spline_funcs[i](xi)[2]\
+         /splines[0].cpFuncs[3](xi)
+    print("Vertical displacement at corner: {:10.8f}.".format(QoI))

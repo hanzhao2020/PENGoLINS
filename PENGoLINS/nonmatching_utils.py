@@ -9,6 +9,8 @@ import os
 from math import *
 import numpy as np 
 
+from petsc4py import PETSc
+from tIGAr.common import *
 from tIGAr.BSplines import *
 from tIGAr.NURBS import *
 from igakit.cad import *
@@ -40,46 +42,23 @@ def m2p(A):
     """
     return as_backend_type(A).mat()
 
-def func2v(u):
-    """
-    Convert "dolfin.function.function.Function" to
-    "dolfin.cpp.la.PETScVector".
-    """
-    return u.vector()
-
-def func2p(u):
-    """
-    Convert "dolfin.function.function.Function" to
-    "petsc4py.PETSc.Mat".
-    """
-    return u.vector().vec()
-
-def form2p(A, mat=True):
-    """
-    Convert "ufl.form.Form" to "petsc4py.PETSc.Mat"
-    or "petsc4py.PETSc.Vec".
-    """
-    if mat:
-        return m2p(assemble(A))
-    else:
-        return v2p(assemble(A))
-
 def arg2v(x):
     """
     Convert dolfin Function or dolfin Vector to petsc4py.PETSc.Vec.
     """
     if isinstance(x, DOLFIN_FUNCTION):
-        x_PETSc = func2p(x)
+        x_PETSc = x.vector().vec()
     elif isinstance(x, DOLFIN_PETSCVECTOR):
         x_PETSc = v2p(x)
     elif isinstance(x, DOLFIN_VECTOR):
-        x_PETSc = zero_petsc_vec(x.size())
-        x_PETSc.setArray(x[:])
-        x_PETSc.assemble()
+        # x_PETSc = zero_petsc_vec(x.size())
+        # x_PETSc.setArray(x[:])
+        # x_PETSc.assemble()
+        x_PETSc = v2p(x)
     elif isinstance(x, PETSC4PY_VECTOR):
         x_PETSc = x
     else:
-        raise TypeError("Type " + str(type(x)) + " is not supported yet.")
+        raise TypeError("Type " + str(type(x)) + " is not supported.")
     return x_PETSc
 
 def arg2m(A):
@@ -89,15 +68,16 @@ def arg2m(A):
     if isinstance(A, DOLFIN_PETSCMATRIX):
         A_PETSc = m2p(A)
     elif isinstance(A, DOLFIN_MATRIX):
-        A_PETSc = zero_petsc_mat(A.size(0), A.size(1))
-        A_PETSc.convert('dense')
-        A_PETSc.setValues(range(A.size(0)), range(A.size(1)), A.array())
-        A_PETSc.assemble()
-        A_PETSc.convert('seqaij')
+        # A_PETSc = zero_petsc_mat(A.size(0), A.size(1))
+        # A_PETSc.convert('dense')
+        # A_PETSc.setValues(range(A.size(0)), range(A.size(1)), A.array())
+        # A_PETSc.assemble()
+        # A_PETSc.convert('seqaij')
+        A_PETSc = m2p(A)
     elif isinstance(A, PETSC4PY_MATRIX):
         A_PETSc = A
     else:
-        raise TypeError("Type " + str(type(A)) + " is not supported yet.")
+        raise TypeError("Type " + str(type(A)) + " is not supported.")
     return A_PETSc
 
 def A_x(A, x):
@@ -116,7 +96,7 @@ def A_x(A, x):
     """
     A_PETSc = arg2m(A)
     x_PETSc = arg2v(x)
-    b_PETSc = zero_petsc_vec(A_PETSc.size[0])
+    b_PETSc = zero_petsc_vec(A_PETSc.size[0], comm=A_PETSc.getComm())
     A_PETSc.mult(x_PETSc, b_PETSc)
     return b_PETSc
 
@@ -150,7 +130,7 @@ def AT_x(A, x):
     """
     A_PETSc = arg2m(A)
     x_PETSc = arg2v(x)
-    b_PETSc = zero_petsc_vec(A_PETSc.size[1])
+    b_PETSc = zero_petsc_vec(A_PETSc.size[1], comm=A_PETSc.getComm())
     A_PETSc.multTranspose(x_PETSc, b_PETSc)
     return b_PETSc
 
@@ -166,12 +146,13 @@ def AT_x_b(A, x, b):
     b : dolfin Function, dolfin Vector, dolfin PETScVector
         or petsc4py.PETSc.Vec
     """
-    A_PETSc = arg2m(A)
-    x_PETSc = arg2v(x)
-    b_PETSc = arg2v(b)
-    A_PETSc.multTranspose(x_PETSc, b_PETSc)
+    # A_PETSc = arg2m(A)
+    # x_PETSc = arg2v(x)
+    # b_PETSc = arg2v(b)
+    # A_PETSc.multTranspose(x_PETSc, b_PETSc)
+    arg2m(A).multTranspose(arg2v(x), arg2v(b))
 
-def AT_R_B(A, R, B, mode=0):
+def AT_R_B(A, R, B):
     """
     Compute "A^T*R*B". A,R and B are "petsc4py.PETSc.Mat".
 
@@ -180,22 +161,15 @@ def AT_R_B(A, R, B, mode=0):
     A : petsc4py.PETSc.Mat
     R : petsc4py.PETSc.Mat
     B : petsc4py.PETSc.Mat
-    mode : int, {0, 1}, optional.
-        If ``mode`` equals to 0, return "A^T*R*B". 
-        If ``mode`` equals to 1, return "(R^T*A)^T*B", this is useful for
-        parallel computing.
 
     Returns
     -------
-    res : petsc4py.PETSc.Mat
+    ATRB : petsc4py.PETSc.Mat
     """
-    if mode == 0:
-        res = A.transposeMatMult(R).matMult(B)
-    elif mode == 1:
-        res = R.transposeMatMult(A).transposeMatMult(B)
-    else:
-        raise TypeError("Mode type "+str(mode)+" is not defined.")
-    return res
+    # ATR = A.transposeMatMult(R)
+    # ATRB = ATR.matMult(B)
+    ATRB = A.transposeMatMult(R).matMult(B)
+    return ATRB
 
 def apply_bcs_vec(spline, v):
     """
@@ -213,26 +187,26 @@ def apply_bcs_vec(spline, v):
     v_PETSc.assemblyBegin()
     v_PETSc.assemblyEnd()
 
-def apply_bcs_mat(spline, A, spline2=None, diag=1):
+def apply_bcs_mat(spline1, A, spline2=None, diag=1):
     """
-    Apply boundary conditions of ``spline`` and ``spline2``(if have) to 
-    matrix ``A``.
+    Apply boundary conditions of ``spline1`` and ``spline2``(if given) 
+    to matrix ``A``.
 
     Parameters
     ----------
-    spline : ExtractedSpline
+    spline1 : ExtractedSpline
     A : dolfin Matrix, dolfin PETScMatrix, PETSc.Mat or None
     spline2 : ExtractedSpline or None, optional
     diag : int, optional, default is 1
-        Value put in all diagonals of eliminated rows 
+        Values put in all diagonals of eliminated rows 
         (0 will even eliminate diagonal entry)
     """
     A_PETSc = arg2m(A)
 
     if spline2 is None:
-        A_PETSc.zeroRowsColumns(spline.zeroDofs, diag=diag)
+        A_PETSc.zeroRowsColumns(spline1.zeroDofs, diag=diag)
     else:
-        A_PETSc.zeroRows(spline.zeroDofs, diag=diag)
+        A_PETSc.zeroRows(spline1.zeroDofs, diag=diag)
         A_PETSc.transpose()
         A_PETSc.zeroRows(spline2.zeroDofs, diag=diag)
         A_PETSc.transpose()
@@ -255,10 +229,10 @@ def IGA2FE(spline, u_IGA, applyBCs=False):
     -------
     u_FE : dolfin PETScVector
     """
-    M_PETSc = m2p(spline.M)
-    # if applyBCs:
-    #     apply_bcs_mats_vec(spline, u_IGA)
-    u_FE_PETSc = A_x(M_PETSc, u_IGA)
+    # M_PETSc = m2p(spline.M)
+    if applyBCs:
+        apply_bcs_vec(spline, u_IGA)
+    u_FE_PETSc = A_x(spline.M, u_IGA)
     u_FE = PETScVector(u_FE_PETSc)
 
     return u_FE
@@ -281,28 +255,11 @@ def FE2IGA(spline, u_FE, applyBCs=True):
     # return multTranspose(spline.M, u_FE.vector())
 
     # M_PETSc = m2p(spline.M)
-    # u_IGA_PETSc = AT_x(M_PETSc, u_FE)
-    # u_IGA = PETScVector(u_IGA_PETSc)
-
-    u_IGA = PETScVector(AT_x(m2p(spline.M), u_FE))
+    u_IGA_PETSc = AT_x(spline.M, u_FE)
+    u_IGA = PETScVector(u_IGA_PETSc)
     if applyBCs:
         apply_bcs_vec(spline, u_IGA)
     return u_IGA
-
-def zero_list(row, col):
-    """
-    Create 2-dimensional zero list of size (``row``, ``col``).
-
-    Parameters
-    ----------
-    row : int
-    col : int
-
-    Returns
-    -------
-    res : list
-    """
-    return [[0 for i in range(col)] for j in range(row)]
 
 def zero_petsc_vec(num_el, vec_type='seq', comm=worldcomm):
     """
@@ -313,14 +270,16 @@ def zero_petsc_vec(num_el, vec_type='seq', comm=worldcomm):
     num_el : int
     vec_type : str, optional
         For petsc4py.PETSc.Vec types, see petsc4py.PETSc.Vec.Type.
+    comm : MPI communicator
 
     Returns
     -------
     v : petsc4py.PETSc.Vec
     """
-    v = PETSc.Vec().create(comm)
-    v.setSizes(num_el)
-    v.setType(vec_type)
+    v = PETSc.Vec(comm)
+    v.createSeq(num_el, comm=comm)
+    # v.setSizes(num_el)
+    # v.setType(vec_type)
     v.setUp()
     v.assemble()
     return v
@@ -335,14 +294,16 @@ def zero_petsc_mat(row, col, mat_type='seqaij', comm=worldcomm):
     col : int
     mat_type : str, optional
         For petsc4py.PETSc.Mat types, see petsc4py.PETSc.Mat.Type
+    comm : MPI communicator
 
     Returns
     -------
     A : petsc4py.PETSc.Mat
     """
-    A = PETSc.Mat().create(comm)
-    A.setSizes([row, col])
-    A.setType(mat_type)
+    A = PETSc.Mat(comm)
+    A.createAIJ([row, col], comm=comm)
+    # A.setSizes([row, col])
+    # A.setType(mat_type)
     A.setUp()
     A.assemble()
     return A
@@ -389,10 +350,12 @@ def penalty_linearization(R_list, vars1=[], vars2=[]):
     num_R = len(R_list[0]) #3
     num_vars = len(vars_list[0]) #3
 
-    dR_du_list = zero_list(2,2)
-    for i in range(2):
-        for j in range(2):
-            dR_du_list[i][j] = zero_list(num_R,num_vars) #(3,3)
+    dR_du_list = [[None for i1 in range(len(vars_list))] \
+                        for i2 in range(len(R_list))]
+    for i in range(len(R_list)):
+        for j in range(len(vars_list)):
+            dR_du_list[i][j] = [[None for i1 in range(num_vars)] \
+                                      for i2 in range(num_R)]
             for m in range(num_R):
                 for n in range(num_vars):
                     dR_du_list[i][j][m][n] = \
@@ -415,20 +378,14 @@ def transfer_penalty_differentiation(R_list, A1_list, A2_list):
     -------
     R : list of petsc4py.PETSc.Vecs
     """
-    R = [0,0]
-    size = [0,0]
-    size[0] = m2p(A1_list[0]).size[1]
-    size[1] = m2p(A2_list[0]).size[1]
+    R = [None for i1 in range(len(R_list))]
     A_list = [A1_list, A2_list]
-
-    for i in range(2):
-        # R[i] = PETScVector(zero_petsc_vec(size[i]))
-        R[i] = zero_petsc_vec(size[i], comm=worldcomm)
-    
     for i in range(len(R_list)):
         for j in range(len(R_list[i])):
-            # R[i] += multTranspose(A_list[i][j], assemble(R_list[i][j]))
-            R[i] += AT_x(A_list[i][j], assemble(R_list[i][j]))
+            if R[i] is not None:
+                R[i] += AT_x(A_list[i][j], assemble(R_list[i][j]))
+            else:
+                R[i] = AT_x(A_list[i][j], assemble(R_list[i][j]))
 
     return R
 
@@ -447,24 +404,22 @@ def transfer_penalty_linearization(dR_du_list, A1_list, A2_list):
     -------
     dR_du : list of petsc4py.PETSc.Mats, rank 2 
     """
-    len1 = len(dR_du_list[0][0]) # 3
-    len2 = len(dR_du_list[0][1]) # 3
-
-    dR_du = zero_list(2,2)
-    size = [0,0]
-    size[0] = m2p(A1_list[0]).size[1]
-    size[1] = m2p(A2_list[0]).size[1]
-    for i in range(2):
-        for j in range(2):
-            dR_du[i][j] = zero_petsc_mat(size[i], size[j], comm=worldcomm)
+    dR_du = [[None for i1 in range(len(dR_du_list[0]))] \
+                   for i2 in range(len(dR_du_list))]
 
     A_list = [A1_list, A2_list]
-    for i in range(2):
-        for j in range(2):
-            for m in range(len1):
-                for n in range(len2):
-                    dR_du[i][j] += AT_R_B(m2p(A_list[i][m]), 
-                        form2p(dR_du_list[i][j][m][n]), m2p(A_list[j][n]))
+    for i in range(len(dR_du_list)):
+        for j in range(len(dR_du_list[i])):
+            for m in range(len(dR_du_list[i][j])):
+                for n in range(len(dR_du_list[i][j][m])):
+                    if dR_du[i][j] is not None:
+                        dR_du[i][j] += AT_R_B(m2p(A_list[i][m]), 
+                            m2p(assemble(dR_du_list[i][j][m][n])), 
+                            m2p(A_list[j][n]))
+                    else:
+                        dR_du[i][j] = AT_R_B(m2p(A_list[i][m]), 
+                            m2p(assemble(dR_du_list[i][j][m][n])), 
+                            m2p(A_list[j][n]))
     return dR_du
 
 def R2IGA(splines, R):
@@ -480,8 +435,8 @@ def R2IGA(splines, R):
     -------
     R_IGA : list of dolfin PETScVectors
     """
-    R_IGA = [0,0]
-    for i in range(len(R_IGA)):
+    R_IGA = [None, None]
+    for i in range(len(R)):
         R_IGA[i] = v2p(FE2IGA(splines[i], R[i]))
     return R_IGA
 
@@ -498,12 +453,18 @@ def dRdu2IGA(splines, dR_du):
     -------
     dRdu_IGA : list of petsc4py.PETSc.Mats, rank 2
     """
-    dRdu_IGA = zero_list(len(dR_du),len(dR_du[0]))
+    # dRdu_IGA = zero_list(len(dR_du),len(dR_du[0]))
+    dRdu_IGA = [[None for i in range(len(dR_du[0]))] \
+                      for j in range(len(dR_du))]
     for i in range(len(dR_du)):
         for j in range(len(dR_du[i])):
-            dRdu_IGA[i][j] = AT_R_B(m2p(splines[i].M), dR_du[i][j],
-                m2p(splines[j].M), mode=1)
-            apply_bcs_mat(splines[i], dRdu_IGA[i][j], splines[j], diag=0)
+            if i == j:
+                diag = 1
+            else:
+                diag = 0
+            dRdu_IGA[i][j] = AT_R_B(m2p(splines[i].M), dR_du[i][j], 
+                                    m2p(splines[j].M))
+            apply_bcs_mat(splines[i], dRdu_IGA[i][j], splines[j], diag=diag)
     return dRdu_IGA
 
 def create_nested_PETScVec(v_list, comm=worldcomm):
@@ -518,7 +479,7 @@ def create_nested_PETScVec(v_list, comm=worldcomm):
     -------
     v : petsc4py.PETSc.Vec
     """
-    v = PETSc.Vec()
+    v = PETSc.Vec(comm)
     v.createNest(v_list, comm=comm)
     v.setUp()
     v.assemble()
@@ -536,7 +497,7 @@ def create_nested_PETScMat(A_list, comm=worldcomm):
     -------
     A : petsc4py.PETSc.Mat
     """
-    A = PETSc.Mat()
+    A = PETSc.Mat(comm)
     A.createNest(A_list, comm=comm)
     A.setUp()
     A.assemble()
@@ -578,14 +539,14 @@ def solve_nested_mat(A, x, b, solver=None):
     if solver is None:
         if A.type != 'seqaij':
             A.convert('seqaij')
-        solve(PETScMatrix(A), PETScVector(x), PETScVector(b))
+        solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "mumps")
     elif solver == 'KSP':
         ksp_solve(A, x, b)
     else:
         raise TypeError("Solver "+solver+" is not supported yet.")
 
 def save_results(spline, u, index, file_name="u", save_path=SAVE_PATH, 
-                 save_cpfuncs=True):
+                 folder="results/", save_cpfuncs=True, comm=worldcomm):
     """
     Save results to .pvd file.
 
@@ -619,22 +580,22 @@ def save_results(spline, u, index, file_name="u", save_path=SAVE_PATH,
     if len(u_split) == 0:
         name_disp = file_name + str(index)
         u.rename(name_disp,name_disp)
-        File(save_path + "results/" + name_disp + "_file.pvd") << u
+        File(comm, save_path + folder + name_disp + "_file.pvd") << u
     else:
         for i in range(len(u_split)):
             name_disp = file_name + str(index) + "_" + str(i)
             u_split[i].rename(name_disp,name_disp)
-            File(save_path + "results/" + name_disp + "_file.pvd") \
-                << u_split[i]
+            File(comm, save_path + folder + name_disp 
+                + "_file.pvd") << u_split[i]
 
     if save_cpfuncs:
         for i in range(spline.nsd+1):
             name_control_mesh = "F" + str(index) + "_" + str(i)
             spline.cpFuncs[i].rename(name_control_mesh, name_control_mesh)
-            File(save_path + "results/" + name_control_mesh + "_file.pvd") \
-                << spline.cpFuncs[i]
+            File(comm, save_path + folder + name_control_mesh 
+                + "_file.pvd") << spline.cpFuncs[i]
 
-def save_cpfuncs(cpfuncs, index, save_path=SAVE_PATH):
+def save_cpfuncs(cpfuncs, index, save_path=SAVE_PATH, comm=worldcomm):
     """
     Save control point functions ``cpfuncs`` of an ExtractedSpline.
 
@@ -667,8 +628,8 @@ def save_cpfuncs(cpfuncs, index, save_path=SAVE_PATH):
     for i in range(len(cpfuncs)):
         name_control_mesh = "cpfuncs" + str(index) + "_" + str(i)
         cpfuncs[i].rename(name_control_mesh, name_control_mesh)
-        File(save_path + "results/" + name_control_mesh + "_file.pvd") \
-            << cpfuncs[i]
+        File(comm, save_path + "results/" + name_control_mesh 
+            + "_file.pvd") << cpfuncs[i]
 
 def generate_interpolated_data(data, num_pts):
     """
@@ -721,8 +682,9 @@ def generate_interpolated_data(data, num_pts):
         for i in range(num_interval):
             for j in range(cols):
                 if i == num_interval-1:
-                    interp_data[np.sum(num_pts_element[0:i]):num_pts, j] = np.\
-                        linspace(data[i,j], data[i+1,j], num_pts_element[i]+1)[0:]
+                    interp_data[np.sum(num_pts_element[0:i]):num_pts, j] \
+                    = np.linspace(data[i,j], data[i+1,j], 
+                                  num_pts_element[i]+1)[0:]
                 else:
                     interp_data[np.sum(num_pts_element[0:i]):np.sum(\
                         num_pts_element[0:i+1]), j] = np.linspace(data[i,j], \
@@ -812,8 +774,12 @@ def generate_mortar_mesh(pts=None, num_el=None, data=None, comm=worldcomm):
         f.write(fs)
         f.close()
         
-        mesh = Mesh(MESH_FILE_NAME)
+    MPI.barrier(comm)    
+    mesh = Mesh(comm, MESH_FILE_NAME)
+
+    if MPI.rank(comm) == 0:
         os.remove(MESH_FILE_NAME)
+
     return mesh
 
 def deformed_position(spline, xi, u_hom):
@@ -855,75 +821,6 @@ def undeformed_position(spline, xi):
     for i in range(3):
         position[i] = spline.cpFuncs[i](xi)/spline.cpFuncs[3](xi)
     return position
-
-def compute_line_Jacobian0(physical_location, mortar_mesh):
-    """
-    Compute the line Jacobian of a mortar mesh based on its location 
-    in the physical domain.
-
-    Parameters
-    ----------
-    physical_location : ndarray 
-        Physical location of the mortar mesh
-    mortar_mesh : dolfin Mesh
-
-    Returns
-    -------
-    line_Jacobian : ndarray
-    """
-    # print("="*50)
-    coord_para = mortar_mesh.coordinates()
-    num_pts = coord_para.shape[0]
-
-    if physical_location.shape[0] == num_pts:
-        coord_phy = physical_location
-    else:
-        coord_phy = generate_interpolated_data(physical_location, num_pts)
-
-    coord_phy_extra = extrapolate_array(coord_phy)
-    coord_para_extra = extrapolate_array(coord_para)
-    coord_phy_middle = array_middle_points(coord_phy_extra)
-    coord_para_middle = array_middle_points(coord_para_extra)
-    el_length_phy = compute_element_length(coord_phy_middle)
-    el_length_para = compute_element_length(coord_para_middle)
-
-    # Avoid near 0 numerator and dinominator
-    for i in range(len(el_length_phy)):
-        if abs(el_length_phy[i]) < 1e-16:
-            for j in range(i+1, len(el_length)):
-                if abs(el_length_phy[j]) > 1e-16:
-                    if i > 0:
-                        el_length_phy[i] = 0.5*(el_length_phy[i-1] 
-                                         + el_length_phy[j])
-                    else:
-                        el_length_phy[i] = el_length_phy[j]
-                else:
-                    if i > 0:
-                        el_length_phy[i] = el_length_phy[i-1]
-                    else:
-                        print("All element lengths in physical space are "
-                        "smaller than 1e-16, makes all values be 1.0.")
-                        el_length_phy = np.ones(el_length_phy.shape[0])
-
-    for i in range(len(el_length_para)):
-        if abs(el_length_para[i]) < 1e-16:
-            for j in range(i+1, len(el_length)):
-                if abs(el_length_para[j]) > 1e-16:
-                    if i > 0:
-                        el_length_para[i] = 0.5*(el_length_para[i-1] 
-                                         + el_length_para[j])
-                    else:
-                        el_length_para[i] = el_length_para[j]
-                else:
-                    if i > 0:
-                        el_length_para[i] = el_length_para[i-1]
-                    else:
-                        print("All element lengths in parametric space are "
-                            "smaller than 1e-16, makes all values be 1.0.")
-                        el_length_para = np.ones(el_length_para.shape[0])
-
-    line_Jacobian_array = el_length_phy/el_length_para
-    return line_Jacobian_array
 
 def compute_line_Jacobian(X):
     """
@@ -1040,31 +937,6 @@ def spline_mesh_phy_coordinates(spline, reshape=True):
         num_cols = int(para_coordinates.shape[0]/num_rows)
         phy_coordinates = phy_coordinates.reshape(num_rows, num_cols, 3)
     return phy_coordinates
-
-def mesh_element_length(mesh_coordinates):
-    """
-    Compute the average element length of a planar mesh in
-    two directions.
-
-    Parameters
-    ----------
-    mesh_coordinates : ndarray
-
-    Returns
-    -------
-    res : list of floats
-    """
-    el_len0_array = np.zeros(mesh_coordinates.shape[0])
-    for i in range(mesh_coordinates.shape[0]):
-        el_len0_array[i] = np.average(compute_element_length(
-            mesh_coordinates[i,:]))
-    el_len0 = np.average(el_len0_array)
-    el_len1_array = np.zeros(mesh_coordinates.shape[1])
-    for i in range(mesh_coordinates.shape[1]):
-        el_len1_array[i] = np.average(compute_element_length(
-            mesh_coordinates[:,i]))
-    el_len1 = np.average(el_len1_array)
-    return [el_len0, el_len1]
 
 def spline_mesh_size(spline):
     """

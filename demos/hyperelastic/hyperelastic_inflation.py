@@ -20,7 +20,7 @@ def create_surf(pts,num_el0, num_el1,p):
 
 def create_spline(srf, num_field=3, BCs=[]):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
 
     for field in range(num_field):
         for BC in BCs:
@@ -41,8 +41,9 @@ h_th = Constant(0.03)
 L = 2.
 
 pressure = Constant(1e2)
+toatl_time = .1
 n_steps = 100
-delta_t = 1./n_steps
+delta_t = toatl_time/n_steps
 stepper = LoadStepper(delta_t)
 
 pts0 = [[0., 0., 0.], [L/2, 0., 0.],
@@ -89,33 +90,14 @@ for i in range(num_srfs):
     F_files += [[],]
     for j in range(3):
         u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i)+"_"+str(j)+"_file.pvd",]
-        u_files[i] += [File(u_file_names[i][j]),]
+        u_files[i] += [File(selfcomm, u_file_names[i][j]),]
         F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)+"_"+str(j)+"_file.pvd",]
-        F_files[i] += [File(F_file_names[i][j]),]
+        F_files[i] += [File(selfcomm, F_file_names[i][j]),]
         if j == 2:
             F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)+"_3_file.pvd",]
-            F_files[i] += [File(F_file_names[i][3]),]
+            F_files[i] += [File(selfcomm, F_file_names[i][3]),]
 
-problem = NonMatchingCoupling(splines, E, h_th, nu)
-
-time_iter = 0
-if time_iter > 0:
-    for i in range(num_srfs):
-        problem.spline_funcs[i].assign(soln[i])
-
-if time_iter%(int(n_steps/100)) == 0:
-    for i in range(num_srfs):
-        soln_split = problem.spline_funcs[i].split()
-        for j in range(3):
-            soln_split[j].rename("u"+str(i)+"_"+str(j), "u"+str(i)+"_"+str(j))
-            u_files[i][j] << soln_split[j]
-            problem.splines[i].cpFuncs[j].rename("F"+str(i)+"_"+str(j),
-                                                 "F"+str(i)+"_"+str(j))
-            F_files[i][j] << problem.splines[i].cpFuncs[j]
-            if j == 2:
-                problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
-                                                     "F"+str(i)+"_3")
-                F_files[i][3] << problem.splines[i].cpFuncs[3]
+problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 
 mapping_list = [[0,1], [2,3], [0,2], [1,3]]
 num_mortar_mesh = len(mapping_list)
@@ -143,12 +125,7 @@ problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 
 for time_iter in range(n_steps):
-
-    # for i in range(len(problem.transfer_matrices_list)):
-    #     for j in range(len(problem.transfer_matrices_list[i])):
-    #         for k in range(len(problem.transfer_matrices_list[i][j])):
-    #                 problem.mortar_vars[i][j][k].interpolate(Constant((0,0,0)))
-
+    print("--- Step:", time_iter, ", time:", (time_iter+1)*delta_t, "---")
     # Initial zero solution
     if time_iter == 0:
         for i in range(num_srfs):
@@ -164,7 +141,6 @@ for time_iter in range(n_steps):
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
 
-    problem.penalty_setup()
     source_terms = []
     residuals = []
     for i in range(num_srfs):
@@ -177,13 +153,9 @@ for time_iter in range(n_steps):
         residuals += [hyperelastic_residual(problem.splines[i], problem.spline_funcs[i], 
             problem.spline_test_funcs[i], E, nu, h_th, source_terms[i]),]
 
-    problem.splines_setup(residuals)
-    problem.nonmatching_setup()
-
-    print("--- Step:", time_iter, ", time:", (time_iter+1)*delta_t, "---")
-    soln = problem.solve_nonlinear_nonmatching_system(rel_tol=1e-3, max_iter=200)
-
-    stepper.advance()
+    problem.set_residuals(residuals)
+    problem.solve_nonlinear_nonmatching_system(rel_tol=1e-3, max_iter=200,
+                                               zero_mortar_funcs=False)
 
     for i in range(num_srfs):
         soln_split = problem.spline_funcs[i].split()
@@ -197,6 +169,7 @@ for time_iter in range(n_steps):
                 problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
                                                      "F"+str(i)+"_3")
                 F_files[i][3] << problem.splines[i].cpFuncs[3]
+    stepper.advance()
 
 for i in range(problem.num_splines):
     xi = np.array([1.,1.])

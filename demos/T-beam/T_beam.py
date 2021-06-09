@@ -1,7 +1,7 @@
 from PENGoLINS.nonmatching_coupling import *
 import matplotlib.pyplot as plt
 
-def create_surf(pts,num_el0, num_el1,p):
+def create_surf(pts, num_el0, num_el1,p):
     knots0 = np.linspace(0,1,num_el0+1)[1:-1]
     knots1 = np.linspace(0,1,num_el1+1)[1:-1]
     L1 = line(pts[0],pts[1])
@@ -16,7 +16,7 @@ def create_surf(pts,num_el0, num_el1,p):
 
 def create_spline(srf, num_field, BCs=[0,1]):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
 
     for field in range(num_field):
         scalar_spline = spline_generator.getScalarSpline(field)
@@ -74,7 +74,7 @@ for i in range(len(pc_list)):
     spline1 = create_spline(srf1, num_field, BCs=[0,1])
 
     splines = [spline0, spline1]
-    problem = NonMatchingCoupling(splines, E, h_th, nu)
+    problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 
     mortar0_pts = np.array([[0.,0.],[0.,1.]])
     mortar_pts = [mortar0_pts]
@@ -97,12 +97,10 @@ for i in range(len(pc_list)):
 
     problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                                 penalty_coefficient)
-    problem.penalty_setup()
 
     source_terms = []
     residuals = []
     f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-
     ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
     ps_list = [ps0,]
     ps_ind = [0,]
@@ -113,9 +111,8 @@ for i in range(len(pc_list)):
         residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
             problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
 
-    problem.splines_setup(residuals, point_sources=ps_list, 
-                          point_source_ind=ps_ind)
-    problem.nonmatching_setup()
+    problem.set_residuals(residuals, point_sources=ps_list, 
+                          point_source_inds=ps_ind)
     problem.solve_linear_nonmatching_system()
 
     ########## Measure displacement and angles of intertest ##########
@@ -181,40 +178,59 @@ for i in range(len(pc_list)):
     print("")
 
 SAVE_PATH = "./"
+# SAVE_PATH = "/home/han/Documents/test_results/"
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
-        save_cpfuncs=True, save_path=SAVE_PATH)
+        save_path=SAVE_PATH, save_cpfuncs=True, comm=selfcomm)
 
-# # # Plot angle w.r.t. the penalty coefficient
-# plt.figure()
-# plt.plot(pc_list, z_disp_list, '-*', 
-#         label="Vertical displacement on load point")
-# plt.xscale('log')
-# plt.legend()
-# plt.grid()
-# plt.xlabel("Penalty coefficient")
-# plt.ylabel("Displacement")
-# plt.title("Displacement for T-beam problem with 2 patches")
+if len(pc_list) > 1:
+    # # Plot angle w.r.t. the penalty coefficient
+    plt.figure()
+    plt.plot(pc_list, z_disp_list, '-*', 
+            label="Vertical displacement on load point")
+    plt.xscale('log')
+    plt.legend()
+    plt.grid()
+    plt.xlabel("Penalty coefficient")
+    plt.ylabel("Displacement")
+    plt.title("Displacement for T-beam problem with 2 patches")
 
-# plt.figure()
-# plt.plot(pc_list, theta_load_list, '-*', label="Angle of the load side")
-# plt.plot(pc_list, theta_free_list, '-*', label="Angle of the free sides")
-# plt.xscale('log')
-# plt.legend()
-# plt.grid()
-# plt.xlabel("Penalty coefficient")
-# plt.ylabel("Angle")
-# plt.title("Angle for T-beam problem with 2 patches")
+    plt.figure()
+    plt.plot(pc_list, theta_load_list, '-*', label="Angle of the load side")
+    plt.plot(pc_list, theta_free_list, '-*', label="Angle of the free sides")
+    plt.xscale('log')
+    plt.legend()
+    plt.grid()
+    plt.xlabel("Penalty coefficient")
+    plt.ylabel("Angle")
+    plt.title("Angle for T-beam problem with 2 patches")
 
-# plt.figure()
-# plt.plot(pc_list, theta_twist_list, '-*', label="Angle of the load side")
-# plt.xscale('log')
-# plt.legend()
-# plt.grid()
-# plt.xlabel("Penalty coefficient")
-# plt.ylabel("Twist")
-# plt.title("Twist for T-beam problem with 2 patches")
-# plt.show()
+    plt.figure()
+    plt.plot(pc_list, theta_twist_list, '-*', label="Angle of the load side")
+    plt.xscale('log')
+    plt.legend()
+    plt.grid()
+    plt.xlabel("Penalty coefficient")
+    plt.ylabel("Twist")
+    plt.title("Twist for T-beam problem with 2 patches")
+    plt.show()
+
+
+# R_FE, dR_du_FE = problem.assemble_residuals()
+# Rm_FE, dRm_dum_FE = problem.assemble_nonmatching()
+# Rt_FE, dRt_dut_FE = problem.setup_nonmatching_system(R_FE, dR_du_FE,
+#                                                   Rm_FE, dRm_dum_FE)
+# b, A = problem.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
+
+# u_IGA_list = []
+# u_list = []
+# for i in range(problem.num_splines):
+#     u_IGA_list += [FE2IGA(problem.splines[i], problem.spline_funcs[i]),]
+#     u_list += [v2p(u_IGA_list[i]),]
+
+# u = create_nested_PETScVec(u_list, comm=problem.comm)
+
+# solve_nested_mat(A, u, -b, solver=None)
 
 """
 Visualization with Paraview:

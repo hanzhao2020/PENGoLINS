@@ -1,5 +1,4 @@
 from PENGoLINS.nonmatching_coupling import *
-import matplotlib.pyplot as plt
 
 def create_surf(pts,num_el0, num_el1,p):
     knots0 = np.linspace(0,1,num_el0+1)[1:-1]
@@ -16,7 +15,7 @@ def create_surf(pts,num_el0, num_el1,p):
 
 def create_spline(srf, num_field=3, BCs=[]):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
 
     for field in range(num_field):
         for BC in BCs:
@@ -74,7 +73,7 @@ for pc_iter in range(len(pc_list)):
         nurbs_srfs += [create_surf(pts_list[i], num_el+i, num_el+i, p),]
         splines += [create_spline(nurbs_srfs[i], BCs=BCs[i]),]
 
-    problem = NonMatchingCoupling(splines, E, h_th, nu)
+    problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 
     mapping_list = [[0,1], [2,3], [0,2], [1,3]]
     num_mortar_mesh = len(mapping_list)
@@ -100,8 +99,6 @@ for pc_iter in range(len(pc_list)):
     problem.create_mortar_funcs_derivative('CG',1)
     problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                                 penalty_coefficient)
-    problem.penalty_setup()
-
     source_terms = []
     residuals = []
     for i in range(len(splines)):
@@ -113,10 +110,7 @@ for pc_iter in range(len(pc_list)):
         residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
             problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
 
-    problem.splines_setup(residuals)
-    problem.nonmatching_setup()
-    total_dofs = problem.b.getArray().size
-    print("Total DoFs:", total_dofs)
+    problem.set_residuals(residuals)
     problem.solve_linear_nonmatching_system()
 
     xi = np.array([1.,1.])
@@ -131,7 +125,7 @@ for pc_iter in range(len(pc_list)):
 SAVE_PATH = "./"
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
-        save_cpfuncs=True, save_path=SAVE_PATH)
+        save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
 
 """
 Visualization with Paraview:

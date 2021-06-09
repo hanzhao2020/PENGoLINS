@@ -69,12 +69,12 @@ def transfer_cpfuns(spline, V_control, dV_control, A_control):
         cpfuncs += [Function(V_control),]
         cpfuncs_dxi1 += [Function(dV_control),]
         cpfuncs_dxi2 += [Function(dV_control),]
-        m2p(A_control[0]).mult(func2p(spline.cpFuncs[i]), 
-                               func2p(cpfuncs[i]))
-        m2p(A_control[1]).mult(func2p(spline.cpFuncs[i]), 
-                               func2p(cpfuncs_dxi1[i]))
-        m2p(A_control[2]).mult(func2p(spline.cpFuncs[i]), 
-                               func2p(cpfuncs_dxi2[i]))
+        m2p(A_control[0]).mult(spline.cpFuncs[i].vector().vec(), 
+                               cpfuncs[i].vector().vec())
+        m2p(A_control[1]).mult(spline.cpFuncs[i].vector().vec(), 
+                               cpfuncs_dxi1[i].vector().vec())
+        m2p(A_control[2]).mult(spline.cpFuncs[i].vector().vec(), 
+                               cpfuncs_dxi2[i].vector().vec())
     return cpfuncs, cpfuncs_dxi1, cpfuncs_dxi2
 
 def create_geometrical_mapping(spline, cpfuncs, cpfuncs_dxi1, cpfuncs_dxi2):
@@ -249,7 +249,7 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi,
 
 def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control, 
                    A1_control, A2_control, alpha_d, alpha_r, 
-                   mortar_vars1, mortar_vars2, dx_m=None, quadrature_degree=2):
+                   mortar_vars1, mortar_vars2, dx_m=None, metadata=None):
     """
     Penalization of displacement and rotation of non-matching interface 
     between two extracted splines.
@@ -290,22 +290,17 @@ def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control,
     x2, dx2dxi = physical_configuration(cpfuncs2, cpfuncs2_dxi1, 
                                         cpfuncs2_dxi2, X2, dX2dxi, 
                                         mortar_vars2)
-    if dx_m is None:
-        dx_m = dx(domain=mortar_mesh, metadata={"quadrature_degree":
-            quadrature_degree})
-
-    # mesh_coord = mortar_mesh.coordinates()
-    # physical_location = interface_physical_location(spline2, mesh_coord)
-    # line_Jacobian = compute_line_Jacobian0(physical_location, mortar_mesh)
-    # line_Jacobian_func = Function(Vm_control)
-    # line_Jacobian = generate_interpolated_data(line_Jacobian, 
-    #     line_Jacobian_func.vector().get_local().size)
-    # line_Jacobian_func.vector().set_local(line_Jacobian[::-1])
+    if dx_m is not None:
+        dx_m = dx_m
+    else:
+        if metadata is not None:
+            dx_m = dx(domain=mortar_mesh, metadata=metadata)
+        else:
+            dx_m = dx(domain=mortar_mesh, metadata={"quadrature_degree":2})
 
     line_Jacobian = compute_line_Jacobian(X2)
     if line_Jacobian == 0.:
         line_Jacobian = sqrt(tr(dX2dxi*dX2dxi.T))
-    # line_Jacobian_func = project(line_Jacobian, Vm_control)
 
     # Penalty of displacement
     W_pd = penalty_displacement(alpha_d, mortar_vars1[0], mortar_vars2[0], 
@@ -314,8 +309,6 @@ def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control,
     W_pr = penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, 
                             line_Jacobian, dx_m)
     W_p = W_pd + W_pr
-    # Return geometric mapping and its derivatives to test line Jacobian
-    # return W_p, X1, X2, dX1dxi, dX2dxi, line_Jacobian
     return W_p
 
 def SVK_residual(spline, u_hom, z_hom, E, nu, h, dWext):

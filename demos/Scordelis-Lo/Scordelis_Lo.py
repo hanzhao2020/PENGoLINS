@@ -17,7 +17,7 @@ def create_roof_srf(num_el, p, R, angle_lim=[50,130], z_lim=[0,1]):
 # Extracted spline creation
 def create_spline(srf, num_field=3, BCs=[1,1], fix_z_node=False):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
 
     for field in range(0,2):
         scalar_spline = spline_generator.getScalarSpline(field)
@@ -113,7 +113,7 @@ print("Total DoFs:", total_dofs)
 
 print("Starting analysis...")
 # Create non-matching problem
-problem = NonMatchingCoupling(splines, E, h_th, nu)
+problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 
 # Mortar meshes' parameters
 mortar_mesh_pts = np.array([[0.,0.],[1.,0.]])
@@ -144,7 +144,6 @@ problem.create_mortar_funcs('CG',1)
 problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
                             penalty_coefficient)
-problem.penalty_setup()
 
 source_terms = []
 residuals = []
@@ -153,10 +152,9 @@ for i in range(len(splines)):
     problem.spline_test_funcs[i]))*problem.splines[i].dx]
     residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
         problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
-problem.splines_setup(residuals)
-problem.nonmatching_setup()
+problem.set_residuals(residuals)
 
-print("Solving the linear non-matching problem...")
+print("Solving linear non-matching problem...")
 problem.solve_linear_nonmatching_system()
 
 # Check the quantity of interest on both sides
@@ -170,9 +168,10 @@ for j in range(len(spline_inds)):
           " (Reference value = 0.3006).".format(j, QoI_temp))
 
 SAVE_PATH = "./"
+# SAVE_PATH = "/home/han/Documents/test_results/"
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
-                save_cpfuncs=True, save_path=SAVE_PATH)
+                save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
 
 """
 Visualization with Paraview:

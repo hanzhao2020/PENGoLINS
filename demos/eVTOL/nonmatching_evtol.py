@@ -10,6 +10,7 @@ from PENGoLINS.nonmatching_coupling import *
 from PENGoLINS.occ_utils import *
 
 SAVE_PATH = "./"
+# SAVE_PATH = "/home/han/Documents/test_results/"
 
 def zero_bc(spline_generator, direction=0, side=0, n_layers=2):
     """
@@ -29,14 +30,14 @@ def ikNURBS2tIGArspline(ikNURBS, num_field=3, quad_deg_const=4,
     """
     quad_deg = ikNURBS.degree[0]*quad_deg_const
     spline_mesh = NURBSControlMesh(ikNURBS, useRect=False)
-    spline_generator = EqualOrderSpline(num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
     if zero_bcs is not None:
         zero_bcs(spline_generator, direction, side)
     if zero_domain is not None:
         for i in fields:
             spline_generator.addZeroDofsByLocation(zero_domain(), i)
-    # DIR = SAVE_PATH+"spline_data/extraction_"+str(index)
-    # spline_generator.writeExtraction(DIR)
+    DIR = SAVE_PATH+"spline_data/extraction_"+str(index)
+    spline_generator.writeExtraction(DIR)
     # spline = ExtractedSpline(DIR, quad_deg)
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
@@ -181,7 +182,7 @@ for i in range(num_srfs):
     splines += [spline]
 
 ################## Creating non-matching problem #########################
-problem = NonMatchingCoupling(splines, E, h_th, nu)
+problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 mortar_nels = []
 mortar_pts = []
 for i in range(num_interfaces):
@@ -222,7 +223,6 @@ for i in range(num_interfaces):
 print("Setting up mortar meshes...")
 problem.mortar_meshes_setup(mapping_list, mortar_meshes_locations_newton,
                             penalty_coefficient)
-problem.penalty_setup()
 
 print("Setting up splines...")
 # Distributive downward load
@@ -234,18 +234,16 @@ for i in range(len(splines)):
         problem.spline_test_funcs[i]))*problem.splines[i].dx]
     residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
         problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
-problem.splines_setup(residuals)
+problem.set_residuals(residuals)
 
-print("Setting up the non-matching system...")
-problem.nonmatching_setup()
-
-print("Solving the system...")
+print("Solving linear non-matching system...")
 problem.solve_linear_nonmatching_system()
 
 print("Saving results...")
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
-                 save_cpfuncs=True, save_path=SAVE_PATH)
+                 save_path=SAVE_PATH, folder="results_temp0/", 
+                 save_cpfuncs=True, comm=problem.comm)
 
 right_srf_ind = 0
 xi = np.array([1, 1])
