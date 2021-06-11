@@ -7,17 +7,6 @@ coupling with multiple spline patches.
 
 from PENGoLINS.nonmatching_shell import *
 
-import os
-import psutil
-
-import matplotlib.pyplot as plt
-
-def memory_usage_psutil():
-    # return the memory usage in MB
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info()[0]/float(1024**2)
-    return mem
-
 class NonMatchingCoupling(object):
     """
     Class sets up the system of coupling of non-matching with 
@@ -55,8 +44,8 @@ class NonMatchingCoupling(object):
         self.num_splines = len(splines)
         self.transfer_derivative = transfer_derivative
         self.spline_funcs = [Function(spline.V) for spline in self.splines]
-        self.spline_test_funcs = [TestFunction(spline.V) for spline in \
-                                  self.splines]
+        self.spline_test_funcs = [TestFunction(spline.V) 
+                                  for spline in self.splines]
 
         if int_measure_metadata is None:
             self.int_measure_metadata = {"quadrature_degree":2}
@@ -79,7 +68,7 @@ class NonMatchingCoupling(object):
         self.num_interfaces = len(num_el_list)
         # print("Creating mortar meshes....")
         self.mortar_meshes = [generate_mortar_mesh(mortar_pts_list[i], 
-                              num_el_list[i], comm=self.comm) \
+                              num_el_list[i], comm=self.comm) 
                               for i in range(self.num_interfaces)]
 
     def create_mortar_funcs(self, family, degree):
@@ -93,14 +82,14 @@ class NonMatchingCoupling(object):
         degree : int
         """
         if self.num_field == 1:
-            self.Vms = [FunctionSpace(mortar_mesh, family, degree) for \
-                mortar_mesh in self.mortar_meshes]
+            self.Vms = [FunctionSpace(mortar_mesh, family, degree) for 
+                        mortar_mesh in self.mortar_meshes]
         else:
             self.Vms = [VectorFunctionSpace(mortar_mesh, family, degree, 
                 dim=self.num_field) for mortar_mesh in self.mortar_meshes]
 
-        self.Vms_control = [FunctionSpace(mortar_mesh, family, degree) for \
-            mortar_mesh in self.mortar_meshes]
+        self.Vms_control = [FunctionSpace(mortar_mesh, family, degree) for 
+                            mortar_mesh in self.mortar_meshes]
         self.mortar_funcs = [[Function(Vm), Function(Vm)] for Vm in self.Vms]
 
     def create_mortar_funcs_derivative(self, family, degree):
@@ -242,7 +231,7 @@ class NonMatchingCoupling(object):
         if Dres is not None:
             self.Dres = Dres
         else:
-            self.Dres = [derivative(self.residuals[i], self.spline_funcs[i]) \
+            self.Dres = [derivative(self.residuals[i], self.spline_funcs[i]) 
                          for i in range(self.num_splines)]
 
         if point_sources is None and point_source_inds is not None:
@@ -276,7 +265,7 @@ class NonMatchingCoupling(object):
 
         # Step 2: assemble non-matching contributions
         Rm_FE = [None for i1 in range(self.num_splines)]
-        dRm_dum_FE = [[None for i1 in range(self.num_splines)] \
+        dRm_dum_FE = [[None for i1 in range(self.num_splines)] 
                       for i2 in range(self.num_splines)]
 
         for i in range(self.num_interfaces):
@@ -366,8 +355,8 @@ class NonMatchingCoupling(object):
                         diag = 1
                     else:
                         diag = 0
-                    apply_bcs_mat(self.splines[i], dRm_dum_IGA_temp, self.splines[j], 
-                                  diag=diag)
+                    apply_bcs_mat(self.splines[i], dRm_dum_IGA_temp, 
+                                  self.splines[j], diag=diag)
                 else:
                     dRm_dum_IGA_temp = None
                 dRt_dut_IGA[i] += [dRm_dum_IGA_temp,]
