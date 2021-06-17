@@ -38,9 +38,16 @@ def read_igs_file(filename, as_compound=True):
 
     Returns
     -------
-    igs_shapes : list of shapes
+    igs_shapes : TopoDS_Compound or list of TopoDS_Faces
     """
-    igs_shapes = read_iges_file(filename, return_as_shapes=not as_compound)
+    igs_shapes = read_iges_file(filename, return_as_shapes=False)
+    if not as_compound:
+        if not isinstance(igs_shapes, list):
+            igs_te = TopologyExplorer(igs_shapes)
+            igs_shapes_temp = []
+            for face in igs_te.faces():
+                igs_shapes_temp += [face,]
+        igs_shapes = igs_shapes_temp
     return igs_shapes
 
 def read_stp_file(filename, as_compound=True):
@@ -54,7 +61,7 @@ def read_stp_file(filename, as_compound=True):
 
     Returns
     -------
-    stp_shapes : list of shapes
+    stp_shapes : TopoDS_Compound or list of TopoDS_Faces
     """
     if as_compound:
         stp_shapes = read_step_file(filename, as_compound=as_compound)

@@ -13,8 +13,9 @@ class NonMatchingCoupling(object):
     multiple spline patches.
     """
     def __init__(self, splines, E, h_th, nu, num_field=3, 
-                 int_measure_metadata=None, contact=None, 
-                 transfer_derivative=True, comm=worldcomm):
+                 int_measure_metadata=None, residuals=None, 
+                 contact=None, transfer_derivative=True, 
+                 comm=worldcomm):
         """
         Pass the list of splines and number of element for 
         each spline and other parameters to initialize the 
@@ -52,6 +53,12 @@ class NonMatchingCoupling(object):
         else:
             self.int_measure_metadata = int_measure_metadata
 
+        self.residuals = residuals
+        if self.residuals is not None:
+            self.Dres = [derivative(self.residuals[i], self.spline_funcs[i]) 
+                         for i in range(self.num_splines)]
+        else:
+            self.Dres = None
         self.contact = contact
 
     def create_mortar_meshes(self, num_el_list, mortar_pts_list):
@@ -380,19 +387,18 @@ class NonMatchingCoupling(object):
         dRt_dut_FE, Rt_FE = self.assemble_nonmatching()
         A, b = self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
 
-        u_IGA_list = []
         u_list = []
         for i in range(self.num_splines):
-            u_IGA_list += [FE2IGA(self.splines[i], self.spline_funcs[i]),]
-            u_list += [v2p(u_IGA_list[i]),]
+            u_list += [zero_petsc_vec(self.splines[i].M.size(1), 
+                                      comm=self.splines[i].comm),]
         u = create_nested_PETScVec(u_list, comm=self.comm)
 
         solve_nested_mat(A, u, -b, solver=solver)
         
         for i in range(self.num_splines):
             v2p(self.spline_funcs[i].vector()).ghostUpdate()
-            self.spline_funcs[i].vector().set_local(IGA2FE(
-                self.splines[i], u_IGA_list[i])[:])
+            self.splines[i].M.mat().mult(u_list[i], 
+                                         self.spline_funcs[i].vector().vec())
         return self.spline_funcs
 
     def solve_nonlinear_nonmatching_system(self, solver=None, ref_error=None,
@@ -450,26 +456,26 @@ class NonMatchingCoupling(object):
 
             du_list = []
             du_IGA_list = []
-            du_IGA_petsc_list = []
             for i in range(self.num_splines):
                 du_list += [Function(self.splines[i].V),]
-                du_IGA_list += [FE2IGA(self.splines[i], du_list[i]),]
-                du_IGA_petsc_list += [v2p(du_IGA_list[i]),]
-            du = create_nested_PETScVec(du_IGA_petsc_list, comm=self.comm)
+                du_IGA_list += [zero_petsc_vec(self.splines[i].M.size(1), 
+                                               comm=self.splines[i].comm)]
+            du = create_nested_PETScVec(du_IGA_list, comm=self.comm)
 
             solve_nested_mat(A, du, -b, solver=solver)
 
             for i in range(self.num_splines):
                 v2p(du_list[i].vector()).ghostUpdate()
-                du_list[i].vector().set_local(IGA2FE(self.splines[i], 
-                                                     du_IGA_list[i])[:])
+                self.splines[i].M.mat().mult(du_IGA_list[i], 
+                                             du_list[i].vector().vec())
                 self.spline_funcs[i].assign(self.spline_funcs[i]+du_list[i])
 
             for i in range(len(self.transfer_matrices_list)):
                 for j in range(len(self.transfer_matrices_list[i])):
                     for k in range(len(self.transfer_matrices_list[i][j])):
                         A_x_b(self.transfer_matrices_list[i][j][k], 
-                            self.spline_funcs[self.mapping_list[i][j]].vector(), 
+                            self.spline_funcs[
+                                self.mapping_list[i][j]].vector(), 
                             self.mortar_vars[i][j][k].vector())
 
         return self.spline_funcs
@@ -489,12 +495,10 @@ class NonMatchingNonlinearProblem(NonlinearProblem):
         """
         super(NonMatchingNonlinearProblem, self).__init__(**kwargs)
         self.problem = problem
-        self.u_IGA_list = []
         self.u_list = []
         for i in range(self.problem.num_splines):
-            self.u_IGA_list += [FE2IGA(self.problem.splines[i], 
-                                  self.problem.spline_funcs[i]),]
-            self.u_list += [v2p(self.u_IGA_list[i]),]
+            self.u_list += [zero_petsc_vec(self.problem.splines[i].M.size(1), 
+                                         comm=self.problem.splines[i].comm),]
         self.u = create_nested_PETScVec(self.u_list, comm=self.problem.comm)
 
     def form(self, A, P, b, x):
@@ -510,8 +514,8 @@ class NonMatchingNonlinearProblem(NonlinearProblem):
 
         for i in range(self.problem.num_splines):
             v2p(self.problem.spline_funcs[i].vector()).ghostUpdate()
-            self.problem.spline_funcs[i].vector().set_local(IGA2FE(
-                self.problem.splines[i], self.u_IGA_list[i])[:])
+            self.problem.splines[i].M.mat().mult(self.u_list[i], 
+                self.problem.spline_funcs[i].vector().vec())
 
         # Update mortar mesh dolfin Functions
         for i in range(len(self.problem.transfer_matrices_list)):

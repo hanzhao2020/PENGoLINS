@@ -157,6 +157,7 @@ for i in range(len(nonmatching_occ_bs)):
     for j in range(len(nonmatching_occ_bs[i])):
         nonmatching_nurbs_srfs[i] += [Bspline_surface2ikNURBS_refine(
             nonmatching_occ_bs[i][j], 3, 0, 0),]
-        write_dir = "./nonmatching_leaflets/"
-        file_name = "leaflet_" + str(i) + "_" + str(j) + ".vtk"
-        VTK().write(write_dir+file_name, nonmatching_nurbs_srfs[i][j])
+        # # Write non-matching heart valves into VTK files
+        # write_dir = "./nonmatching_leaflets/"
+        # file_name = "leaflet_" + str(i) + "_" + str(j) + ".vtk"
+        # VTK().write(write_dir+file_name, nonmatching_nurbs_srfs[i][j])
