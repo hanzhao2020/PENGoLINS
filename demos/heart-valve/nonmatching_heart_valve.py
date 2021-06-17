@@ -15,7 +15,6 @@ from create_nonmatching_leaflets import nonmatching_occ_bs, \
 parameters["std_out_all_processes"] = False
 
 SAVE_PATH = "./"
-SAVE_PATH = "/home/han/Documents/test_results/"
 RESTART_PATH = SAVE_PATH+"restarts/"
 viz = True
 out_skip = 1
@@ -193,12 +192,13 @@ def phiDoublePrime(r):
 contactContext_sh = ShellContactContext(splines, R_self, r_max, 
                                         phiPrime, phiDoublePrime)
 
-# # Create background fluid mesh
-# from mshr import *
 resolution = 70
 CYLINDER_RAD = 1.1
 BOTTOM = -0.5
 TOP = 2.0
+
+# # Create background fluid mesh
+# from mshr import *
 # tube = Cylinder(Point(0,0,BOTTOM),
 #                 Point(0,0,TOP),CYLINDER_RAD,CYLINDER_RAD)
 

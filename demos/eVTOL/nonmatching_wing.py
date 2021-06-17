@@ -51,10 +51,18 @@ num_field = 3
 penalty_coefficient = 1.0e3
 
 print("Importing geometry...")
+# For stp format geometry
 filename_stp = "eVTOL.stp"
 stp_shapes = read_stp_file(filename_stp, as_compound=False)
-evtol_surfaces = [topoface2surface(face, bspline=True) \
-                    for face in stp_shapes]
+evtol_surfaces = [topoface2surface(face, bspline=True) 
+                  for face in stp_shapes]
+
+# # For igs format geometry
+# filename_igs = "eVTOL_in.igs"
+# igs_shapes = read_igs_file(filename_igs, as_compound=False)
+# evtol_surfaces = [topoface2surface(face, bspline=True) 
+#                   for face in igs_shapes]
+
 wing_surfaces = evtol_surfaces[10:18]  # 10:18 are the indices of wing
 num_srfs = len(wing_surfaces)
 print("Number of surfaces:", num_srfs)
@@ -220,7 +228,7 @@ problem.solve_linear_nonmatching_system()
 print("Saving results...")
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
-                 save_path=SAVE_PATH, folder="results_temp1/", 
+                 save_path=SAVE_PATH, folder="results/", 
                  save_cpfuncs=True, comm=selfcomm)
     
 xi = array([1, 1])
