@@ -8,6 +8,7 @@ CAD geometry.
 from OCC.Core.gp import gp_Pnt, gp_Vec
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface, BRepAdaptor_Curve
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Copy
 from OCC.Core.Geom import Geom_Curve, Geom_Surface
 from OCC.Core.Geom import Geom_BSplineCurve, Geom_BSplineSurface
 from OCC.Core.GeomAdaptor import GeomAdaptor_Curve, GeomAdaptor_Surface
@@ -27,7 +28,7 @@ from OCC.Display.SimpleGui import init_display
 from igakit.cad import *
 from PENGoLINS.calculus_utils import *
 
-def read_igs_file(filename, as_compound=True):
+def read_igs_file(filename, as_compound=False):
     """
     Read iga file into python.
 
@@ -50,7 +51,7 @@ def read_igs_file(filename, as_compound=True):
         igs_shapes = igs_shapes_temp
     return igs_shapes
 
-def read_stp_file(filename, as_compound=True):
+def read_stp_file(filename, as_compound=False):
     """
     Read stp file into python.
 
@@ -171,6 +172,24 @@ def topoface2surface(topo_face, bspline=False):
     else:
         surface = face_adaptor.Surface().Surface()
     return surface
+
+def copy_surface(surface, bspline=False):
+    """
+    Duplicate OCC Geom_Surface
+
+    Parameters
+    ----------
+    surface : OCC Geom Surface or OCC Geom BSplineSurface
+    bspline : bool, optional
+
+    Returns
+    -------
+    surface_copy : OCC Geom Surface or OCC Geom BSplineSurface
+    """
+    surface_shape = surface2topoface(surface)
+    surface_shape_copy = BRepBuilderAPI_Copy(surface_shape).Shape()
+    surface_copy = topoface2surface(surface_shape_copy, bspline=bspline)
+    return surface_copy
 
 def get_curve_coord(curve, num_pts=20, sort_axis=None, flip=False):
     """

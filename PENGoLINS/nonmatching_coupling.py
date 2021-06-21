@@ -26,7 +26,7 @@ class NonMatchingCoupling(object):
         splines : list of ExtractedSplines
         E : ufl Constant, Young's modulus
         h_th : ufl Constant, thickness of the splines
-        nu : ufl Constant, Passion's ratio
+        nu : ufl Constant, Poisson's ratio
         num_field : int, optional
             Number of field of the unknowns. Default is 3.
         transfer_derivative : bool, optional, default is True.
@@ -37,13 +37,36 @@ class NonMatchingCoupling(object):
             self.comm = comm
 
         self.splines = splines
-        self.E = E  # Young's modulus 
-        self.h_th = h_th  # Thickness of the splines
-        self.nu = nu  # Passion's ratio
-        self.num_field = num_field
-        self.geometric_dimension = splines[0].mesh.geometric_dimension()
         self.num_splines = len(splines)
+        self.num_field = num_field
+        self.geom_dim = splines[0].mesh.geometric_dimension()
+
+        if isinstance(E, list):
+            self.E = E  # Young's modulus
+            if len(self.E) != self.num_splines:
+                raise AssertionError("Length of Young's modulus list "
+                    "doesn't match with the number of splines.")
+        else:
+            self.E = [E for i in range(self.num_splines)]
+
+        if isinstance(h_th, list):
+            self.h_th = h_th  # Thickness of the splines
+            if len(self.h_th) != self.num_splines:
+                raise AssertionError("Length of shell thickness list "
+                    "doesn't match with the number of splines.")
+        else:
+            self.h_th = [h_th for i in range(self.num_splines)]
+
+        if isinstance(nu, list):
+            self.nu = nu  # Poisson's ratio
+            if len(self.nu) != self.num_splines:
+                raise AssertionError("Length of Poisson's ratio list "
+                    "doesn't match with the number of splines.")
+        else:
+            self.nu = [nu for i in range(self.num_splines)]
+
         self.transfer_derivative = transfer_derivative
+
         self.spline_funcs = [Function(spline.V) for spline in self.splines]
         self.spline_test_funcs = [TestFunction(spline.V) 
                                   for spline in self.splines]
@@ -73,7 +96,6 @@ class NonMatchingCoupling(object):
             Contains points of location for all mortar meshes.
         """
         self.num_interfaces = len(num_el_list)
-        # print("Creating mortar meshes....")
         self.mortar_meshes = [generate_mortar_mesh(mortar_pts_list[i], 
                               num_el_list[i], comm=self.comm) 
                               for i in range(self.num_interfaces)]
@@ -113,7 +135,7 @@ class NonMatchingCoupling(object):
 
         self.dVms = []
         self.dVms_control = []
-        self.mortar_funcs_dxi = [[] for i in range(self.geometric_dimension)]
+        self.mortar_funcs_dxi = [[] for i in range(self.geom_dim)]
 
         for i in range(self.num_interfaces):
             if self.num_field == 1:
@@ -127,7 +149,7 @@ class NonMatchingCoupling(object):
             self.dVms_control += [FunctionSpace(self.mortar_meshes[i], 
                                                 family, degree),]
 
-            for j in range(self.geometric_dimension):
+            for j in range(self.geom_dim):
                 self.mortar_funcs_dxi[j] += [[Function(self.dVms[i]), 
                                               Function(self.dVms[i])],]
 
@@ -142,7 +164,7 @@ class NonMatchingCoupling(object):
             for j in range(2):
                 self.mortar_vars[i][j] += [self.mortar_funcs[i][j],]
                 if self.transfer_derivative:
-                    for k in range(self.geometric_dimension):
+                    for k in range(self.geom_dim):
                         self.mortar_vars[i][j] += \
                             [self.mortar_funcs_dxi[k][i][j],]
 
@@ -163,19 +185,18 @@ class NonMatchingCoupling(object):
         self.transfer_matrices_list = []
         self.transfer_matrices_control_list = []
         self.transfer_matrices_linear_list = []
-
         self.hm_avg_list = []
         self.alpha_d_list = []
         self.alpha_r_list = []
 
         for i in range(self.num_interfaces):
-            # print("Mortar mesh index:", i)
             transfer_matrices = [[], []]
             transfer_matrices_control = [[], []]
             transfer_matrices_linear = [[], []]
             for j in range(len(self.mapping_list[i])):
                 move_mortar_mesh(self.mortar_meshes[i], 
                                  mortar_meshes_locations[i][j])
+                # Create transfer matrices
                 if self.transfer_derivative:
                     transfer_matrices[j] = create_transfer_matrix_list(
                         self.splines[self.mapping_list[i][j]].V, 
@@ -200,25 +221,35 @@ class NonMatchingCoupling(object):
             self.transfer_matrices_control_list += [transfer_matrices_control,]
             self.transfer_matrices_linear_list += [transfer_matrices_linear,]
 
-            h0 = spline_mesh_size(self.splines[self.mapping_list[i][0]])
-            h0_func = project(h0, 
-                self.splines[self.mapping_list[i][0]].V_linear)
-            h0m = A_x(transfer_matrices_linear[0], h0_func)
+            s_ind0, s_ind1 = mapping_list[i]
 
-            h1 = spline_mesh_size(self.splines[self.mapping_list[i][1]])
-            h1_func = project(h1, 
-                self.splines[self.mapping_list[i][1]].V_linear)
+            # Compute element length
+            h0 = spline_mesh_size(self.splines[s_ind0])
+            h0_func = project(h0, self.splines[s_ind0].V_linear)
+            h0m = A_x(transfer_matrices_linear[0], h0_func)
+            h1 = spline_mesh_size(self.splines[s_ind1])
+            h1_func = project(h1, self.splines[s_ind1].V_linear)
             h1m = A_x(transfer_matrices_linear[1], h1_func)
             h_avg = 0.5*(h0m+h1m)
-
             hm_avg = Function(self.Vms_control[i])
             hm_avg.vector().set_local(h_avg.getArray()[::-1])
             self.hm_avg_list += [hm_avg,]
 
-            alpha_d = Constant(penalty_coefficient)*self.E*self.h_th\
-                    /(hm_avg*(1-self.nu**2))
-            alpha_r = Constant(penalty_coefficient)*self.E*self.h_th**3\
-                    /(12*hm_avg*(1-self.nu**2))
+            # Use "Minimum" method for spline patches with different
+            # material properties.
+            # For uniform isotropic material:
+            max_Aij0 = float(self.E[s_ind0]*self.h_th[s_ind0]\
+                       /(1-self.nu[s_ind0]**2))
+            max_Aij1 = float(self.E[s_ind1]*self.h_th[s_ind1]\
+                       /(1-self.nu[s_ind1]**2))
+            alpha_d = Constant(penalty_coefficient)/hm_avg\
+                      *min(max_Aij0, max_Aij1)
+            max_Dij0 = float(self.E[s_ind0]*self.h_th[s_ind0]**3\
+                       /(12*(1-self.nu[s_ind0]**2)))
+            max_Dij1 = float(self.E[s_ind1]*self.h_th[s_ind1]**3\
+                       /(12*(1-self.nu[s_ind1]**2)))
+            alpha_r = Constant(penalty_coefficient)/hm_avg\
+                      *min(max_Dij0, max_Dij1)
             self.alpha_d_list += [alpha_d,]
             self.alpha_r_list += [alpha_r,]
 
