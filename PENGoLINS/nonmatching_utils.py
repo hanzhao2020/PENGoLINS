@@ -503,7 +503,8 @@ def create_nested_PETScMat(A_list, comm=worldcomm):
     A.assemble()
     return A
 
-def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, rtol=1e-15):
+def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, 
+              pc_type=PETSc.PC.Type.LU, rtol=1e-15):
     """
     Solve "Ax=b" using PETSc Krylov solver.
 
@@ -517,6 +518,7 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, rtol=1e-15):
     """
     ksp = PETSc.KSP().create()
     ksp.setType(ksp_type)
+    ksp.getPC().setType(pc_type)
     ksp.setTolerances(rtol=rtol)
     ksp.setOperators(A)
     ksp.setFromOptions()
@@ -540,7 +542,8 @@ def solve_nested_mat(A, x, b, solver=None):
         if A.type != 'seqaij':
             A.convert('seqaij')
         solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "mumps")
-    elif solver == 'KSP':
+        # solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "gmres")
+    elif solver == 'ksp':
         ksp_solve(A, x, b)
     else:
         raise TypeError("Solver "+solver+" is not supported yet.")

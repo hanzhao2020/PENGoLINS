@@ -50,16 +50,18 @@ pts1 = [[0., 0., 0.], [0.,0.,-h],\
 pc_list = [1.0e3,]
 # Uncomment the full pc_list to test different penalty coefficients
 # pc_list = [1.0e-3, 1.0e-1, 1.0e0, 1.0e1, 1.0e3, 1.0e5, 1.0e7]
-num_el_list = [12,]
+# num_el_list = [8, 16, 32, 64, 128, 256]
 z_disp_list = []
 theta_free_list = []
 theta_load_list = []
 theta_twist_list = []
 
-for i in range(len(pc_list)):
-    num_el = num_el_list[0]
+for penalty_coefficient in pc_list:
+# for num_el in num_el_list:
+
+    num_el = 10
+    # penalty_coefficient = 1e3
     print("Number of elements:", num_el)
-    penalty_coefficient = pc_list[i]
     print("Penalty coefficient:", penalty_coefficient)
     p = 3
     num_el0 = num_el
@@ -113,7 +115,7 @@ for i in range(len(pc_list)):
 
     problem.set_residuals(residuals, point_sources=ps_list, 
                           point_source_inds=ps_ind)
-    problem.solve_linear_nonmatching_system()
+    problem.solve_linear_nonmatching_problem()
 
     ########## Measure displacement and angles of intertest ##########
     # z-displacement at load point
@@ -197,7 +199,7 @@ if len(pc_list) > 1:
 
     plt.figure()
     plt.plot(pc_list, theta_load_list, '-*', label="Angle of the load side")
-    plt.plot(pc_list, theta_free_list, '-*', label="Angle of the free sides")
+    plt.plot(pc_list, theta_free_list, '-*', label="Angle of the free side")
     plt.xscale('log')
     plt.legend()
     plt.grid()
@@ -206,7 +208,7 @@ if len(pc_list) > 1:
     plt.title("Angle for T-beam problem with 2 patches")
 
     plt.figure()
-    plt.plot(pc_list, theta_twist_list, '-*', label="Angle of the load side")
+    plt.plot(pc_list, theta_twist_list, '-*', label="Twist angle of vertical path")
     plt.xscale('log')
     plt.legend()
     plt.grid()

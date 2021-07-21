@@ -403,7 +403,7 @@ class NonMatchingCoupling(object):
         A = create_nested_PETScMat(dRt_dut_IGA, comm=self.comm)
         return A, b
 
-    def solve_linear_nonmatching_system(self, solver=None):
+    def solve_linear_nonmatching_problem(self, solver=None):
         """
         Solve the linear non-matching system.
 
@@ -432,9 +432,9 @@ class NonMatchingCoupling(object):
                                          self.spline_funcs[i].vector().vec())
         return self.spline_funcs
 
-    def solve_nonlinear_nonmatching_system(self, solver=None, ref_error=None,
-                                           rel_tol=1e-3, max_iter=20,
-                                           zero_mortar_funcs=True):
+    def solve_nonlinear_nonmatching_problem(self, solver=None, ref_error=None,
+                                            rel_tol=1e-3, max_iter=20,
+                                            zero_mortar_funcs=True):
         """
         Solve the nonlinear non-matching system.
 

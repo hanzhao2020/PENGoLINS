@@ -185,6 +185,13 @@ def interface_orthonormal_basis(dxdxi):
     e0, e1 = orthonormalize2D(a0, a1)
     return e0, e1, a2
 
+def project_normal_vector_onto_tangent_space(to_project, e1, e2):
+    """
+    Project a normal vector on to the tangent space of a surface
+    """
+    res = inner(to_project, e1)*e1 + inner(to_project, e2)*e2
+    return res
+
 def penalty_displacement(alpha_d, u1m_hom, u2m_hom, 
                          line_Jacobian=None, dx_m=None):
     """
@@ -230,21 +237,27 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi,
     ------
     W_pd : ufl Form
     """
-    # For patch 1
+
     if line_Jacobian is None:
         line_Jacobian = Constant(1.)
     if dx_m is None:
         dx_m = dx
+
+    # Orthonormal basis for patch 1
     e11, e21, e31 = interface_orthonormal_basis(dx1dxi)
     E11, E21, E31 = interface_orthonormal_basis(dX1dxi)
 
-    # For patch 2
-    a12, a22, a32 = interface_geometry(dx2dxi)
-    A12, A22, A32 = interface_geometry(dX2dxi)
+    # Orthonormal basis for patch 2
+    e12, e22, e32 = interface_orthonormal_basis(dx2dxi)
+    E12, E22, E32 = interface_orthonormal_basis(dX2dxi)
 
-    W_pr = 0.5*alpha_r*((dot(e11, a32)-dot(E11, A32))**2 \
-         + (dot(e21, a32)-dot(E21, A32))**2
-         + (dot(e31, a32)-dot(E31, A32))**2)*line_Jacobian*dx_m
+    W_pr = 0.5*alpha_r*((dot(e31, e32)-dot(E31, E32))**2 \
+           + (project_normal_vector_onto_tangent_space(e32, e11, e21) \
+           - project_normal_vector_onto_tangent_space(E32, E11, E21))**2) \
+           *line_Jacobian*dx_m
+    # W_pr = 0.5*alpha_r*((dot(e11, a32)-dot(E11, A32))**2 \
+    #      + (dot(e21, a32)-dot(E21, A32))**2
+    #      + (dot(e31, a32)-dot(E31, A32))**2)*line_Jacobian*dx_m
     return W_pr
 
 def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control, 

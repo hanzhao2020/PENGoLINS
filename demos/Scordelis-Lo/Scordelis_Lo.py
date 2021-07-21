@@ -155,7 +155,7 @@ for i in range(len(splines)):
 problem.set_residuals(residuals)
 
 print("Solving linear non-matching problem...")
-problem.solve_linear_nonmatching_system()
+problem.solve_linear_nonmatching_problem()
 
 # Check the quantity of interest on both sides
 xi_list = [array([0.0, 0.5]), array([1.0, 0.5])]
@@ -167,11 +167,11 @@ for j in range(len(spline_inds)):
     print("Quantity of interest for patch {} = {:8.6f}"
           " (Reference value = 0.3006).".format(j, QoI_temp))
 
-SAVE_PATH = "./"
-# SAVE_PATH = "/home/han/Documents/test_results/"
-for i in range(len(splines)):
-    save_results(splines[i], problem.spline_funcs[i], i, 
-                save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
+# SAVE_PATH = "./"
+# # SAVE_PATH = "/home/han/Documents/test_results/"
+# for i in range(len(splines)):
+#     save_results(splines[i], problem.spline_funcs[i], i, 
+#                 save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
 
 """
 Visualization with Paraview:
