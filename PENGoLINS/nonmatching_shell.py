@@ -251,13 +251,13 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi,
     e12, e22, e32 = interface_orthonormal_basis(dx2dxi)
     E12, E22, E32 = interface_orthonormal_basis(dX2dxi)
 
+    pe = project_normal_vector_onto_tangent_space(e32, e11, e21)
+    pE = project_normal_vector_onto_tangent_space(E32, E11, E21)
+
     W_pr = 0.5*alpha_r*((dot(e31, e32)-dot(E31, E32))**2 \
-           + (project_normal_vector_onto_tangent_space(e32, e11, e21) \
-           - project_normal_vector_onto_tangent_space(E32, E11, E21))**2) \
+           + (sqrt(dot(pe, pe)+DOLFIN_EPS)-sqrt(dot(pE, pE)))**2) \
            *line_Jacobian*dx_m
-    # W_pr = 0.5*alpha_r*((dot(e11, a32)-dot(E11, A32))**2 \
-    #      + (dot(e21, a32)-dot(E21, A32))**2
-    #      + (dot(e31, a32)-dot(E31, A32))**2)*line_Jacobian*dx_m
+
     return W_pr
 
 def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control, 
