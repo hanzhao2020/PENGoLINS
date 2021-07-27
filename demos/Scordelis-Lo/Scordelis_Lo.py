@@ -1,4 +1,5 @@
 from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.stress_recovery import *
 
 # Geometry creation using igakit
 def create_roof_srf(num_el, p, R, angle_lim=[50,130], z_lim=[0,1]):
@@ -167,11 +168,38 @@ for j in range(len(spline_inds)):
     print("Quantity of interest for patch {} = {:8.6f}"
           " (Reference value = 0.3006).".format(j, QoI_temp))
 
-# SAVE_PATH = "./"
-# # SAVE_PATH = "/home/han/Documents/test_results/"
-# for i in range(len(splines)):
-#     save_results(splines[i], problem.spline_funcs[i], i, 
-#                 save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
+
+SAVE_PATH = "./"
+# SAVE_PATH = "/home/han/Documents/test_results/"
+for i in range(len(splines)):
+    save_results(splines[i], problem.spline_funcs[i], i, 
+                save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
+
+# Compute von Mises stress
+von_Mises_tops = []
+von_Mises_bots = []
+for i in range(len(splines)):
+    spline_stress = ShellStressSVK(problem.splines[i], 
+                                   problem.spline_funcs[i], E, nu, 
+                                   h_th, linearize=True)
+    von_Mises_top = spline_stress.vonMisesStress(h_th/2)
+    von_Mises_top_proj = projectScalar(problem.splines[i], von_Mises_top, 
+                                       problem.splines[i].V_linear, 
+                                       lumpMass=False)
+    von_Mises_top_proj.rename("von_Mises_top_"+str(i), 
+                              "von_Mises_top_"+str(i))
+    File(SAVE_PATH+"results/von_Mises_top_"+str(i)+".pvd") \
+        << von_Mises_top_proj
+    von_Mises_tops += [von_Mises_top_proj]
+    von_Mises_bot = spline_stress.vonMisesStress(-h_th/2)
+    von_Mises_bot_proj = projectScalar(problem.splines[i], von_Mises_bot, 
+                                       problem.splines[i].V_linear, 
+                                       lumpMass=False)
+    von_Mises_bot_proj.rename("von_Mises_bot_"+str(i), 
+                              "von_Mises_bot_"+str(i))
+    File(SAVE_PATH+"results/von_Mises_bot_"+str(i)+".pvd") \
+        << von_Mises_bot_proj
+    von_Mises_bots += [von_Mises_bot_proj]
 
 """
 Visualization with Paraview:
