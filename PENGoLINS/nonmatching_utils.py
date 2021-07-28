@@ -954,10 +954,14 @@ def spline_mesh_size(spline):
     -------
     h : ufl mathfunctions
     """
-    dxi_dxiHat = 0.5*ufl.Jacobian(spline.mesh)
+    # dxi_dxiHat = 0.5*ufl.Jacobian(spline.mesh)
+    # dX_dxi = grad(spline.F)
+    # dX_dxiHat = dX_dxi*dxi_dxiHat
+    # h = sqrt(tr(dX_dxiHat*dX_dxiHat.T))
+    
+    h_param = CellDiameter(spline.mesh)
     dX_dxi = grad(spline.F)
-    dX_dxiHat = dX_dxi*dxi_dxiHat
-    h = sqrt(tr(dX_dxiHat*dX_dxiHat.T))
+    h = h_param*sqrt(tr(dX_dxi*dX_dxi.T))
     return h
 
 # import matplotlib.pyplot as plt 

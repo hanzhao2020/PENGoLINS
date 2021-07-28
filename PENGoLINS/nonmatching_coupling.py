@@ -225,10 +225,15 @@ class NonMatchingCoupling(object):
 
             # Compute element length
             h0 = spline_mesh_size(self.splines[s_ind0])
-            h0_func = project(h0, self.splines[s_ind0].V_linear)
+            # h0_func = project(h0, self.splines[s_ind0].V_linear)
+            h0_func = self.splines[s_ind0]\
+                .projectScalarOntoLinears(h0, lumpMass=True)
             h0m = A_x(transfer_matrices_linear[0], h0_func)
+
             h1 = spline_mesh_size(self.splines[s_ind1])
-            h1_func = project(h1, self.splines[s_ind1].V_linear)
+            # h1_func = project(h1, self.splines[s_ind1].V_linear)
+            h1_func = self.splines[s_ind1]\
+                .projectScalarOntoLinears(h1, lumpMass=True)
             h1m = A_x(transfer_matrices_linear[1], h1_func)
             h_avg = 0.5*(h0m+h1m)
             hm_avg = Function(self.Vms_control[i])

@@ -219,17 +219,31 @@ class ShellForceSVK:
         """
         mBar = self.bendingMoments()
 
+        # # Shear force components
+        # qBar1 = grad(mBar[0,0])[0]/sqrt(self.a[0,0]) \
+        #       + grad(mBar[0,1])[1]/sqrt(self.a[1,1])
+        # qBar2 = grad(mBar[1,1])[1]/sqrt(self.a[1,1]) \
+        #       + grad(mBar[1,0])[0]/sqrt(self.a[0,0])
+
+        e0, e1 = orthonormalize2D(self.a0, self.a1)
         # Shear force components
-        qBar1 = grad(mBar[0,0])[0]/sqrt(self.a[0,0]) \
-              + grad(mBar[0,1])[1]/sqrt(self.a[1,1])
-        qBar2 = grad(mBar[1,1])[1]/sqrt(self.a[1,1]) \
-              + grad(mBar[1,0])[0]/sqrt(self.a[0,0])
+
+        # # Dividing $(a_{\alpha\alpha})^{1/2}$ gives a much smaller
+        # # shear force value compared to refernece value (7 compared to 278)
+        # qBar1 = dot(self.spline.grad(mBar[0,0]), e0)/sqrt(self.a[0,0]) \
+        #       + dot(self.spline.grad(mBar[0,1]), e1)/sqrt(self.a[1,1])
+        # qBar2 = dot(self.spline.grad(mBar[1,1]), e1)/sqrt(self.a[1,1]) \
+        #       + dot(self.spline.grad(mBar[1,0]), e0)/sqrt(self.a[0,0])
+
+        qBar1 = dot(self.spline.grad(mBar[0,0]), e0) \
+              + dot(self.spline.grad(mBar[0,1]), e1)
+        qBar2 = dot(self.spline.grad(mBar[1,1]), e1) \
+              + dot(self.spline.grad(mBar[1,0]), e0)
 
         qBar = as_vector([qBar1, qBar2])
         q = contravariantTensorToCurvilinear2D(qBar, self.A, self.A0, self.A1)
         qHat = contravariantTensorToCartesian2D(q, self.a, self.a0, self.a1)
         return qHat
-
 
 class ShellStressSVK(ShellForceSVK):
     """
