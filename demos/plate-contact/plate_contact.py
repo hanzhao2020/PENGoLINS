@@ -1,11 +1,12 @@
 from PENGoLINS.nonmatching_coupling import *
-from PENGoLINS.contact import *
+from ShNAPr.contact import *
 from tIGAr.timeIntegration import *
 
 import os
 import psutil
-
 import matplotlib.pyplot as plt
+
+SAVE_PATH = "./"
 
 def memory_usage_psutil():
     # return the memory usage in MB
@@ -98,12 +99,15 @@ for i in range(num_srfs):
     F_files += [[],]
     for j in range(3):
         # print("J:", j)
-        u_file_names[i] += [SAVE_PATH+"results_temp2/"+"u"+str(i)+"_"+str(j)+"_file.pvd",]
+        u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i) 
+                            +"_"+str(j)+"_file.pvd",]
         u_files[i] += [File(selfcomm, u_file_names[i][j]),]
-        F_file_names[i] += [SAVE_PATH+"results_temp2/"+"F"+str(i)+"_"+str(j)+"_file.pvd",]
+        F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i) 
+                            +"_"+str(j)+"_file.pvd",]
         F_files[i] += [File(selfcomm, F_file_names[i][j]),]
         if j == 2:
-            F_file_names[i] += [SAVE_PATH+"results_temp2/"+"F"+str(i)+"_3_file.pvd",]
+            F_file_names[i] += [SAVE_PATH+"results/"+"F" 
+                                + str(i)+"_3_file.pvd",]
             F_files[i] += [File(selfcomm, F_file_names[i][3]),]
 
 R_self = 0.05
@@ -122,15 +126,16 @@ def phi_double_prime(r):
         res = k_contact
     return res
 
-contact = ShellContactContext(splines, R_self, r_max, phi_prime, phi_double_prime)
+contact = ShellContactContext(splines, R_self, r_max, 
+                              phi_prime, phi_double_prime)
 
-problem = NonMatchingCoupling(splines, E, h_th, nu, contact=contact, comm=selfcomm)
+problem = NonMatchingCoupling(splines, E, h_th, nu, 
+                              contact=contact, comm=selfcomm)
 
 mapping_list = [[0,1], [2,3], [4,5]]
 num_mortar_mesh = len(mapping_list)
 
 mortar_nels = []
-mortar_pts = []
 mortar_mesh_locations = []
 v_mortar_locs = [np.array([[1., 0.], [1., 1.]]),
                  np.array([[0., 0.], [0., 1.]])]
@@ -139,10 +144,9 @@ h_mortar_locs = [np.array([[0., 1.], [1., 1.]]),
 
 for i in range(num_mortar_mesh):
     mortar_nels += [(num_el_list[i*2+1])*2,]
-    mortar_pts += [np.array([[0., 0.], [0., 1.]]),]
     mortar_mesh_locations += [v_mortar_locs,]
 
-problem.create_mortar_meshes(mortar_nels, mortar_pts)
+problem.create_mortar_meshes(mortar_nels)
 problem.create_mortar_funcs('CG',1)
 problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
@@ -166,13 +170,18 @@ for i in range(problem.num_splines):
     time_integrator_list += [GeneralizedAlphaIntegrator(rho_inf, delta_t, 
         problem.spline_funcs[i], (y_old_hom_list[i], ydot_old_hom_list[i], 
         yddot_old_hom_list[i])),]
-    y_alpha_list += [problem.splines[i].rationalize(time_integrator_list[i].x_alpha())]
-    ydot_alpha_list += [problem.splines[i].rationalize(time_integrator_list[i].xdot_alpha())]
-    yddot_alpha_list += [problem.splines[i].rationalize(time_integrator_list[i].xddot_alpha())]
+    y_alpha_list += [problem.splines[i].rationalize(
+                     time_integrator_list[i].x_alpha())]
+    ydot_alpha_list += [problem.splines[i].rationalize(
+                        time_integrator_list[i].xdot_alpha())]
+    yddot_alpha_list += [problem.splines[i].rationalize(
+                         time_integrator_list[i].xddot_alpha())]
     if i == 0 or i == 1:
-        time_integrator_list[i].xdot_old.interpolate(Expression(("0.0","0.0","2.0"),degree=1))
+        time_integrator_list[i].xdot_old.interpolate(
+            Expression(("0.0","0.0","2.0"),degree=1))
     else:
-        time_integrator_list[i].xdot_old.interpolate(Expression(("0.0","0.0","0.0"),degree=1))
+        time_integrator_list[i].xdot_old.interpolate(
+            Expression(("0.0","0.0","0.0"),degree=1))
 
 total_steps = 500
 memory_profile = []
@@ -183,7 +192,8 @@ for time_iter in range(total_steps):
         for i in range(num_srfs):
             soln_split = problem.spline_funcs[i].split()
             for j in range(3):
-                soln_split[j].rename("u"+str(i)+"_"+str(j), "u"+str(i)+"_"+str(j))
+                soln_split[j].rename("u"+str(i)+"_"+str(j), 
+                                     "u"+str(i)+"_"+str(j))
                 u_files[i][j] << soln_split[j]
                 problem.splines[i].cpFuncs[j].rename("F"+str(i)+"_"+str(j),
                                                      "F"+str(i)+"_"+str(j))
@@ -203,18 +213,21 @@ for time_iter in range(total_steps):
         source_terms += [inner(f_list[i], problem.splines[i].rationalize(\
             problem.spline_test_funcs[i]))*problem.splines[i].dx,]
         res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
-                      *SVK_residual(problem.splines[i], problem.spline_funcs[i], 
-                        problem.spline_test_funcs[i], E, nu, h_th, source_terms[i]),]
+                      *SVK_residual(problem.splines[i], 
+                                    problem.spline_funcs[i], 
+                                    problem.spline_test_funcs[i], 
+                                    E, nu, h_th, source_terms[i]),]
         dMass_list += [dens*h_th*inner(yddot_alpha_list[i], 
             problem.spline_test_funcs[i])*problem.splines[i].dx,]
         residuals += [res_list[i]+dMass_list[i]]
     problem.set_residuals(residuals)    
-    problem.solve_nonlinear_nonmatching_system(rel_tol=1e-3, max_iter=100,
-                                               zero_mortar_funcs=False)
+    problem.solve_nonlinear_nonmatching_problem(rel_tol=1e-3, max_iter=100,
+                                                zero_mortar_funcs=False)
     for i in range(problem.num_splines):
         soln_split = problem.spline_funcs[i].split()
         for j in range(3):
-            soln_split[j].rename("u"+str(i)+"_"+str(j), "u"+str(i)+"_"+str(j))
+            soln_split[j].rename("u"+str(i)+"_"+str(j), 
+                                 "u"+str(i)+"_"+str(j))
             u_files[i][j] << soln_split[j]
             problem.splines[i].cpFuncs[j].rename("F"+str(i)+"_"+str(j),
                                                  "F"+str(i)+"_"+str(j))
@@ -224,21 +237,23 @@ for time_iter in range(total_steps):
                                                      "F"+str(i)+"_3")
                 F_files[i][3] << problem.splines[i].cpFuncs[3]
         time_integrator_list[i].advance()
-    print("Inspection: Memory usage: {:8.2f} MB.\n".format(memory_usage_psutil()))
+    print("Inspection: Memory usage: {:8.2f} MB.\n"\
+          .format(memory_usage_psutil()))
     memory_profile += [memory_usage_psutil(),]
 
-
-print("Memory usage increases: {:10.4f} MB".format(memory_profile[-1]-memory_profile[0]))
+print("Memory usage increases: {:10.4f} MB"\
+      .format(memory_profile[-1]-memory_profile[0]))
 
 plt.figure()
 plt.plot(np.arange(len(memory_profile)), memory_profile, '-o')
 plt.grid()
 plt.xlabel("Iteration")
 plt.ylabel("Memory usage (MB)")
-plt.show()
+# plt.show()
 
 for i in range(0, problem.num_splines, 2):
     xi = np.array([1.,1.])
     QoI = -problem.spline_funcs[i](xi)[2]\
          /splines[0].cpFuncs[3](xi)
-    print("Vertical displacement at corner: {:10.8f}.".format(QoI))
+    print("Vertical displacement at corner: {:10.8f} (patch {})."\
+          .format(QoI, i))

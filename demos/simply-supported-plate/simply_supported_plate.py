@@ -50,7 +50,7 @@ pts_list = [pts0, pts1, pts2, pts3]
 num_srfs = len(pts_list)
 
 pc_list = [1.0e1, 1.0e2, 1.0e3, 1.0e4, 1.0e5, 1.0e6]
-# pc_list = [1.0e3,]
+pc_list = [1.0e3,]
 num_el_list = [16,]
 QoI_list = []
 QoI_normal_list = []
@@ -79,7 +79,6 @@ for pc_iter in range(len(pc_list)):
     num_mortar_mesh = len(mapping_list)
 
     mortar_nels = []
-    mortar_pts = []
     mortar_mesh_locations = []
     v_mortar_locs = [np.array([[1., 0.], [1., 1.]]),
                      np.array([[0., 0.], [0., 1.]])]
@@ -88,13 +87,12 @@ for pc_iter in range(len(pc_list)):
 
     for i in range(num_mortar_mesh):
         mortar_nels += [(num_el+i+2)*2,]
-        mortar_pts += [np.array([[0., 0.], [0., 1.]]),]
         if i < 2:
             mortar_mesh_locations += [v_mortar_locs,]
         else:
             mortar_mesh_locations += [h_mortar_locs,]
 
-    problem.create_mortar_meshes(mortar_nels, mortar_pts)
+    problem.create_mortar_meshes(mortar_nels)
     problem.create_mortar_funcs('CG',1)
     problem.create_mortar_funcs_derivative('CG',1)
     problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
@@ -111,7 +109,7 @@ for pc_iter in range(len(pc_list)):
             problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
 
     problem.set_residuals(residuals)
-    problem.solve_linear_nonmatching_system()
+    problem.solve_linear_nonmatching_problem()
 
     xi = np.array([1.,1.])
     QoI = -problem.spline_funcs[0](xi)[2]\

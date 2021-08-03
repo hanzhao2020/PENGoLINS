@@ -25,8 +25,8 @@ def create_spline(srf, num_field=3, BCs=[0,0], fix_z_node=False):
         scalar_spline = spline_generator.getScalarSpline(field)
         parametric_direction = 0
         for side in [0,1]:
-            side_dofs = scalar_spline.getSideDofs(parametric_direction, side,
-                                                  nLayers=2)
+            side_dofs = scalar_spline.getSideDofs(parametric_direction, 
+                                                  side, nLayers=2)
             if BCs[side] == 1:
                 spline_generator.addZeroDofs(field, side_dofs)
 
@@ -55,7 +55,8 @@ mortar_nels = []
 
 for i in range(num_srfs):
     nurbs_srfs += [create_srf(num_el+i, num_el*2+i, 
-                              angle_lim=[360/num_srfs*i, 360/num_srfs*(i+1)])]
+                              angle_lim=[360/num_srfs*i, 
+                                         360/num_srfs*(i+1)])]
     if BCs_list[i] is not None:
         splines += [create_spline(nurbs_srfs[-1], BCs=BCs_list[i])]
     else:
@@ -63,7 +64,8 @@ for i in range(num_srfs):
 
 total_dofs = 0
 for i in range(num_srfs):
-    total_dofs += nurbs_srfs[i].control.shape[0]*nurbs_srfs[i].control.shape[1]*3
+    total_dofs += nurbs_srfs[i].control.shape[0]\
+               *nurbs_srfs[i].control.shape[1]*3
 print("Total DoFs:", total_dofs)
 print("Penalty coefficient:", penalty_coefficient)
 print("Starting analysis...")
@@ -73,17 +75,15 @@ mapping_list = [[0,1], [1,2], [2,3]]
 num_mortar_mesh = len(mapping_list)
 
 mortar_nels = []
-mortar_pts = []
 mortar_mesh_locations = []
 v_mortar_locs = [np.array([[1., 0.], [1., 1.]]),
                  np.array([[0., 0.], [0., 1.]])]
 
 for i in range(num_mortar_mesh):
     mortar_nels += [(num_el+i+1)*2,]
-    mortar_pts += [np.array([[0., 0.], [0., 1.]]),]
     mortar_mesh_locations += [v_mortar_locs,]
 
-problem.create_mortar_meshes(mortar_nels, mortar_pts)
+problem.create_mortar_meshes(mortar_nels)
 problem.create_mortar_funcs('CG',1)
 problem.create_mortar_funcs_derivative('CG',1)
 
@@ -113,12 +113,15 @@ for i in range(num_srfs):
     F_file_names += [[],]
     F_files += [[],]
     for j in range(3):
-        u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i)+"_"+str(j)+"_file.pvd",]
+        u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i)
+                            +"_"+str(j)+"_file.pvd",]
         u_files[i] += [File(selfcomm, u_file_names[i][j]),]
-        F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)+"_"+str(j)+"_file.pvd",]
+        F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)
+                            +"_"+str(j)+"_file.pvd",]
         F_files[i] += [File(selfcomm, F_file_names[i][j]),]
         if j == 2:
-            F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)+"_3_file.pvd",]
+            F_file_names[i] += [SAVE_PATH+"results/"+"F"
+                                +str(i)+"_3_file.pvd",]
             F_files[i] += [File(selfcomm, F_file_names[i][3]),]
 
 WA_list = []
@@ -126,14 +129,15 @@ WB_list = []
 
 for nonlinear_test_iter in range(load_step):
 
-    print("-------------- Iteration:", nonlinear_test_iter, "--------------")
+    print("------------ Iteration:", nonlinear_test_iter, "-------------")
     print("Line force density ratio:", line_force_ratio[nonlinear_test_iter])
 
     if nonlinear_test_iter == 0:
         for i in range(num_srfs):
             soln_split = problem.spline_funcs[i].split()
             for j in range(3):
-                soln_split[j].rename("u"+str(i)+"_"+str(j), "u"+str(i)+"_"+str(j))
+                soln_split[j].rename("u"+str(i)+"_"+str(j), 
+                                     "u"+str(i)+"_"+str(j))
                 u_files[i][j] << soln_split[j]
                 problem.splines[i].cpFuncs[j].rename("F"+str(i)+"_"+str(j),
                                                      "F"+str(i)+"_"+str(j))
@@ -158,18 +162,22 @@ for nonlinear_test_iter in range(load_step):
 
     residuals = []
     for i in range(problem.num_splines):
-        residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
-            problem.spline_test_funcs[i], E, nu, h_th, source_terms[i]),]
+        residuals += [SVK_residual(problem.splines[i], 
+                                   problem.spline_funcs[i], 
+                                   problem.spline_test_funcs[i], 
+                                   E, nu, h_th, source_terms[i]),]
 
     problem.set_residuals(residuals)
     
     print("Solving nonlinear non-matching system...")
-    soln = problem.solve_nonlinear_nonmatching_system(rel_tol=1e-2, max_iter=100)
+    soln = problem.solve_nonlinear_nonmatching_problem(rel_tol=1e-2, 
+                                                       max_iter=100)
 
     for i in range(num_srfs):
         soln_split = problem.spline_funcs[i].split()
         for j in range(3):
-            soln_split[j].rename("u"+str(i)+"_"+str(j), "u"+str(i)+"_"+str(j))
+            soln_split[j].rename("u"+str(i)+"_"+str(j), 
+                                 "u"+str(i)+"_"+str(j))
             u_files[i][j] << soln_split[j]
             problem.splines[i].cpFuncs[j].rename("F"+str(i)+"_"+str(j),
                                                  "F"+str(i)+"_"+str(j))
@@ -186,8 +194,10 @@ for nonlinear_test_iter in range(load_step):
         QoI_temp = problem.spline_funcs[spline_ind](xi)[2]\
                  /splines[spline_ind].cpFuncs[3](xi)
         if j == 0:
-            print("Vertical displacement for point A = {:8.6f}".format(QoI_temp))
+            print("Vertical displacement for point A = {:8.6f}"\
+                  .format(QoI_temp))
             WA_list += [QoI_temp,]
         else:
-            print("Vertical displacement for point B = {:8.6f}".format(QoI_temp))
+            print("Vertical displacement for point B = {:8.6f}"\
+                  .format(QoI_temp))
             WB_list += [QoI_temp,]

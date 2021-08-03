@@ -1,5 +1,4 @@
 from PENGoLINS.nonmatching_coupling import *
-from PENGoLINS.stress_recovery import *
 
 # Geometry creation using igakit
 def create_roof_srf(num_el, p, R, angle_lim=[50,130], z_lim=[0,1]):
@@ -117,30 +116,27 @@ print("Starting analysis...")
 problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 
 # Mortar meshes' parameters
-mortar_mesh_pts = np.array([[0.,0.],[1.,0.]])
 mapping_list = [[0,1],[1,2],[3,4],[4,5],[6,7],[7,8],
                 [0,3],[3,6],[1,4],[4,7],[2,5],[5,8]]
 num_interfaces = len(mapping_list)
-mortar_pts = []
-mortar_nels = []
-for j in range(num_interfaces):
-    mortar_pts += [mortar_mesh_pts, ]
-    mortar_nels += [spline_nels[mapping_list[j][0]]\
-                    +spline_nels[mapping_list[j][1]]]
 
 # Mortar mesh parametric locations
 h_mortar_locs = [np.array([[0., 1.], [1., 1.]]), 
                  np.array([[0., 0.], [1., 0.]])]
 v_mortar_locs = [np.array([[1., 0.], [1., 1.]]),
                  np.array([[0., 0.], [0., 1.]])]
+
+mortar_nels = []
 mortar_mesh_locations = []
 for j in range(num_interfaces):
+    mortar_nels += [spline_nels[mapping_list[j][0]]\
+                    +spline_nels[mapping_list[j][1]]]
     if j < 6:
         mortar_mesh_locations += [v_mortar_locs]
     else:
         mortar_mesh_locations += [h_mortar_locs]
 
-problem.create_mortar_meshes(mortar_nels, mortar_pts)
+problem.create_mortar_meshes(mortar_nels)
 problem.create_mortar_funcs('CG',1)
 problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
@@ -168,38 +164,37 @@ for j in range(len(spline_inds)):
     print("Quantity of interest for patch {} = {:8.6f}"
           " (Reference value = 0.3006).".format(j, QoI_temp))
 
+# Compute von Mises stress
+print("Computing von Mises stresses...")
+von_Mises_tops = []
+von_Mises_bots = []
+for i in range(problem.num_splines):
+    spline_stress = ShellStressSVK(problem.splines[i], 
+                                   problem.spline_funcs[i],
+                                   E, nu, h_th, linearize=True)
+    # von Mises stresses on top surfaces
+    von_Mises_top = spline_stress.vonMisesStress(h_th/2)
+    von_Mises_top_proj = problem.splines[i].projectScalarOntoLinears(
+                            von_Mises_top, lumpMass=False)
+    von_Mises_tops += [von_Mises_top_proj]
+    # von Mises stresses on bottom surfaces
+    von_Mises_bot = spline_stress.vonMisesStress(-h_th/2)
+    von_Mises_bot_proj = problem.splines[i].projectScalarOntoLinears(
+                            von_Mises_bot, lumpMass=False)
+    von_Mises_bots += [von_Mises_bot_proj]
 
 SAVE_PATH = "./"
-# SAVE_PATH = "/home/han/Documents/test_results/"
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
                 save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
-
-# Compute von Mises stress
-von_Mises_tops = []
-von_Mises_bots = []
-for i in range(len(splines)):
-    spline_stress = ShellStressSVK(problem.splines[i], 
-                                   problem.spline_funcs[i], E, nu, 
-                                   h_th, linearize=True)
-    von_Mises_top = spline_stress.vonMisesStress(h_th/2)
-    von_Mises_top_proj = projectScalar(problem.splines[i], von_Mises_top, 
-                                       problem.splines[i].V_linear, 
-                                       lumpMass=False)
-    von_Mises_top_proj.rename("von_Mises_top_"+str(i), 
-                              "von_Mises_top_"+str(i))
+    von_Mises_tops[i].rename("von_Mises_top_"+str(i), 
+                             "von_Mises_top_"+str(i))
     File(SAVE_PATH+"results/von_Mises_top_"+str(i)+".pvd") \
-        << von_Mises_top_proj
-    von_Mises_tops += [von_Mises_top_proj]
-    von_Mises_bot = spline_stress.vonMisesStress(-h_th/2)
-    von_Mises_bot_proj = projectScalar(problem.splines[i], von_Mises_bot, 
-                                       problem.splines[i].V_linear, 
-                                       lumpMass=False)
-    von_Mises_bot_proj.rename("von_Mises_bot_"+str(i), 
-                              "von_Mises_bot_"+str(i))
+        << von_Mises_tops[i]
+    von_Mises_bots[i].rename("von_Mises_bot_"+str(i), 
+                             "von_Mises_bot_"+str(i))
     File(SAVE_PATH+"results/von_Mises_bot_"+str(i)+".pvd") \
-        << von_Mises_bot_proj
-    von_Mises_bots += [von_Mises_bot_proj]
+        << von_Mises_bots[i]
 
 """
 Visualization with Paraview:

@@ -1,14 +1,19 @@
-from os import path
+"""
+The heart valve geometry can be downloaded from the following url:
+    
+    https://drive.google.com/file/d/1nSSc5kKJN30YL4Ho5UjelvyB4qKrHKRb/view?usp=sharing
 
+and extracted using the command "tar -xvzf leaflet-geometries.tgz".
+"""
+
+from os import path
 from CouDALFISh import *
 from tIGAr.BSplines import *
 from VarMINT import *
 from ShNAPr.SVK import *
 from ShNAPr.contact import *
 
-from PENGoLINS.occ_utils import *
 from PENGoLINS.nonmatching_coupling import *
-
 from create_nonmatching_leaflets import nonmatching_occ_bs, \
                                         nonmatching_nurbs_srfs
 
@@ -101,80 +106,43 @@ if mpirank == 0:
     print("Computing non-matching interfaces...")
 nonmatching_occ_bs_flat = [occ_bs for occ_bs_i in nonmatching_occ_bs \
                            for occ_bs in occ_bs_i]
-mapping_list = []
-intersection_curves = []
-interface_phy_coords = []
-interface_phy_coords_proj = []
-for i in range(len(nonmatching_occ_bs_flat)):
-    for j in range(i+1, len(nonmatching_occ_bs_flat) ):
-        bs_intersect = BSplineSurfacesIntersections(
-                       nonmatching_occ_bs_flat[i], 
-                       nonmatching_occ_bs_flat[j], rtol=1e-4)
-        if bs_intersect.num_intersections > 0:
-            mapping_list += [[i, j],]*bs_intersect.num_intersections
-            intersection_curves += bs_intersect.intersections
-            intersection_coords = bs_intersect.intersection_coords(30)
-            intersection_coords_proj = []
-            for k in range(len(intersection_coords)):
-                intersection_coords[k] = intersection_coords[k]
-                intersection_coords_proj += [[project_locations_on_surface(
-                                              intersection_coords[k],
-                                              nonmatching_occ_bs_flat[i]), 
-                                              project_locations_on_surface(
-                                              intersection_coords[k],
-                                              nonmatching_occ_bs_flat[j])],]
-            interface_phy_coords += intersection_coords
-            interface_phy_coords_proj += intersection_coords_proj
-num_interfaces = len(mapping_list)
 
 if mpirank == 0:
+    print("Computing non-matching interfaces...")
+mapping_list = []
+mortar_nels = [] # Number of elements for mortar meshes
+intersection_curves = [] # List of intersection curves
+intersections_para_coords = [] 
+for i in range(num_srfs):
+    for j in range(i+1, num_srfs):
+        bs_intersect = BSplineSurfacesIntersections(nonmatching_occ_bs_flat[i], 
+                                                    nonmatching_occ_bs_flat[j], 
+                                                    rtol=1e-4)
+        if bs_intersect.num_intersections > 0:
+            mapping_list += [[i, j],]*bs_intersect.num_intersections
+            mortar_nels += [np.max([np.max(ikNURBS_srfs[i].control.shape), 
+                            np.max(ikNURBS_srfs[j].control.shape)])*2,]\
+                           *bs_intersect.num_intersections
+            intersection_curves += bs_intersect.intersections
+            intersections_para_coords += \
+                bs_intersect.intersections_parametric_coords(
+                    num_pts=int((mortar_nels[-1])*1.1))
+
+num_interfaces = len(mapping_list)
+if mpirank == 0:
     print("Number of non-matching interfaces:", num_interfaces)
+
 
 # Define non-matching problem
 nonmatching_problem = NonMatchingCoupling(splines, E, h_th, nu, 
                                           comm=selfcomm)
 
-mortar_nels = []
-mortar_pts = []
-for i in range(num_interfaces):
-    mortar_nels += [np.max([np.max(ikNURBS_srfs[
-                    mapping_list[i][0]].control.shape),
-                    np.max(ikNURBS_srfs[
-                    mapping_list[i][1]].control.shape)])*2,]
-    mortar0_pts = np.array([[0.,0.],[0.,1.]])
-    mortar_pts += [mortar0_pts,]
-nonmatching_problem.create_mortar_meshes(mortar_nels, mortar_pts)
+nonmatching_problem.create_mortar_meshes(mortar_nels)
 nonmatching_problem.create_mortar_funcs('CG',1)
 nonmatching_problem.create_mortar_funcs_derivative('CG',1)
 
-if mpirank == 0:
-    print("Computing non-matching interface parametric locations...")
-max_iter = 100
-rtol = 1e-9
-print_res = False
-interp_phy_loc = False
-r = 0.7
-edge_tol = 1e-3
-mortar_meshes_locations_newton = []
-for i in range(num_interfaces):
-    # print("interface index:", i)
-    parametric_location0 = interface_parametric_location(
-        nonmatching_problem.splines[mapping_list[i][0]], 
-        nonmatching_problem.mortar_meshes[i], 
-        interface_phy_coords_proj[i][0], max_iter=max_iter, rtol=rtol, 
-        print_res=print_res, interp_phy_loc=interp_phy_loc, r=r, 
-        edge_tol=edge_tol)
-    parametric_location1 = interface_parametric_location(
-        nonmatching_problem.splines[mapping_list[i][1]], 
-        nonmatching_problem.mortar_meshes[i], 
-        interface_phy_coords_proj[i][1], max_iter=max_iter, rtol=rtol, 
-        print_res=print_res, interp_phy_loc=interp_phy_loc, r=r, 
-        edge_tol=edge_tol)
-    mortar_meshes_locations_newton += [[parametric_location0, 
-                                        parametric_location1],]
-
 nonmatching_problem.mortar_meshes_setup(mapping_list, 
-    mortar_meshes_locations_newton, penalty_coefficient)
+    intersections_para_coords, penalty_coefficient)
 
 # Define contact context:
 R_self = 0.045
@@ -377,18 +345,18 @@ if mpirank == 0:
         F_files += [[],]
         for j in range(3):
             # For shell patches' displacement
-            u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i)\
+            u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i)
                                 +"_"+str(j)+"_file.pvd",]
             u_files[i] += [File(nonmatching_problem.comm, 
                                 u_file_names[i][j]),]
             # For shell patches' initial configuration
-            F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)\
+            F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)
                                 +"_"+str(j)+"_file.pvd",]
             F_files[i] += [File(nonmatching_problem.comm, 
                                 F_file_names[i][j]),]
             if j == 2:
                 # For shell patches' weights
-                F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)\
+                F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)
                                     +"_3_file.pvd",]
                 F_files[i] += [File(nonmatching_problem.comm, 
                                     F_file_names[i][3]),]
@@ -404,7 +372,7 @@ if restarting:
     fsi_problem.readRestarts(RESTART_PATH, start_step)
 
 # Time stepping loop
-for time_step in range(start_step, n_steps):
+for time_step in range(3):#range(start_step, n_steps):
 
     PRESSURE.t = time_int_f.t-(1.0-float(time_int_f.ALPHA_M))*float(delta_t)
     if mpirank == 0:

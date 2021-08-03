@@ -48,7 +48,7 @@ pts1 = [[0., 0., 0.], [0.,0.,-h],\
 
 
 pc_list = [1.0e3,]
-# Uncomment the full pc_list to test different penalty coefficients
+# # Uncomment the full pc_list to test different penalty coefficients
 # pc_list = [1.0e-3, 1.0e-1, 1.0e0, 1.0e1, 1.0e3, 1.0e5, 1.0e7]
 # num_el_list = [8, 16, 32, 64, 128, 256]
 z_disp_list = []
@@ -59,7 +59,7 @@ theta_twist_list = []
 for penalty_coefficient in pc_list:
 # for num_el in num_el_list:
 
-    num_el = 10
+    num_el = 16
     # penalty_coefficient = 1e3
     print("Number of elements:", num_el)
     print("Penalty coefficient:", penalty_coefficient)
@@ -78,11 +78,8 @@ for penalty_coefficient in pc_list:
     splines = [spline0, spline1]
     problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
 
-    mortar0_pts = np.array([[0.,0.],[0.,1.]])
-    mortar_pts = [mortar0_pts]
     mortar_nels = [2*num_el0]
-
-    problem.create_mortar_meshes(mortar_nels, mortar_pts)
+    problem.create_mortar_meshes(mortar_nels)
     problem.create_mortar_funcs('CG',1)
     problem.create_mortar_funcs_derivative('CG',1)
 
@@ -110,8 +107,10 @@ for penalty_coefficient in pc_list:
     for i in range(len(splines)):
         source_terms += [inner(f0, problem.splines[i].rationalize(\
             problem.spline_test_funcs[i]))*problem.splines[i].dx,]
-        residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
-            problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
+        residuals += [SVK_residual(problem.splines[i], 
+                                   problem.spline_funcs[i], 
+                                   problem.spline_test_funcs[i], 
+                                   E, nu, h_th, source_terms[i])]
 
     problem.set_residuals(residuals, point_sources=ps_list, 
                           point_source_inds=ps_ind)
@@ -180,7 +179,6 @@ for penalty_coefficient in pc_list:
     print("")
 
 SAVE_PATH = "./"
-# SAVE_PATH = "/home/han/Documents/test_results/"
 for i in range(len(splines)):
     save_results(splines[i], problem.spline_funcs[i], i, 
         save_path=SAVE_PATH, save_cpfuncs=True, comm=selfcomm)
@@ -208,7 +206,8 @@ if len(pc_list) > 1:
     plt.title("Angle for T-beam problem with 2 patches")
 
     plt.figure()
-    plt.plot(pc_list, theta_twist_list, '-*', label="Twist angle of vertical path")
+    plt.plot(pc_list, theta_twist_list, '-*', 
+             label="Twist angle of vertical path")
     plt.xscale('log')
     plt.legend()
     plt.grid()
@@ -216,23 +215,6 @@ if len(pc_list) > 1:
     plt.ylabel("Twist")
     plt.title("Twist for T-beam problem with 2 patches")
     plt.show()
-
-
-# R_FE, dR_du_FE = problem.assemble_residuals()
-# Rm_FE, dRm_dum_FE = problem.assemble_nonmatching()
-# Rt_FE, dRt_dut_FE = problem.setup_nonmatching_system(R_FE, dR_du_FE,
-#                                                   Rm_FE, dRm_dum_FE)
-# b, A = problem.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
-
-# u_IGA_list = []
-# u_list = []
-# for i in range(problem.num_splines):
-#     u_IGA_list += [FE2IGA(problem.splines[i], problem.spline_funcs[i]),]
-#     u_list += [v2p(u_IGA_list[i]),]
-
-# u = create_nested_PETScVec(u_list, comm=problem.comm)
-
-# solve_nested_mat(A, u, -b, solver=None)
 
 """
 Visualization with Paraview:
