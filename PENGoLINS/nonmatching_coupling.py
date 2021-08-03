@@ -6,6 +6,7 @@ coupling with multiple spline patches.
 """
 
 from PENGoLINS.nonmatching_shell import *
+from PENGoLINS.occ_utils import *
 
 class NonMatchingCoupling(object):
     """
@@ -72,7 +73,9 @@ class NonMatchingCoupling(object):
                                   for spline in self.splines]
 
         if int_measure_metadata is None:
-            self.int_measure_metadata = {"quadrature_degree":2}
+            self.int_measure_metadata = {'quadrature_degree': 0, 
+                                         'quadrature_scheme': 'vertex'}
+            # self.int_measure_metadata = {"quadrature_degree":2}
         else:
             self.int_measure_metadata = int_measure_metadata
 
@@ -84,7 +87,7 @@ class NonMatchingCoupling(object):
             self.Dres = None
         self.contact = contact
 
-    def create_mortar_meshes(self, num_el_list, mortar_pts_list):
+    def create_mortar_meshes(self, num_el_list, mortar_pts_list=None):
         """
         Create mortar meshes for non-matching with multiple patches.
 
@@ -93,9 +96,13 @@ class NonMatchingCoupling(object):
         num_el_list : list of ints
             Contains number of elements for all mortar meshes.
         "mortar_pts_list" : list of ndarrays
-            Contains points of location for all mortar meshes.
+            Contains points of location for all mortar meshes. 
+            Default is None.
         """
         self.num_interfaces = len(num_el_list)
+        if mortar_pts_list is None:
+            mortar_pts_list = [np.array([[0.,0.],[0.,1.]]),]\
+                            *self.num_interfaces
         self.mortar_meshes = [generate_mortar_mesh(mortar_pts_list[i], 
                               num_el_list[i], comm=self.comm) 
                               for i in range(self.num_interfaces)]
@@ -348,8 +355,12 @@ class NonMatchingCoupling(object):
 
         # Step 3: add spline residuls and non-matching contribution together
         for i in range(self.num_splines):
-            Rm_FE[i] += R_FE[i]
-            dRm_dum_FE[i][i] += dR_du_FE[i]
+            if Rm_FE[i] is not None:
+                Rm_FE[i] += R_FE[i]
+                dRm_dum_FE[i][i] += dR_du_FE[i]
+            else:
+                Rm_FE[i] = R_FE[i]
+                dRm_dum_FE[i][i] = dR_du_FE[i]
 
         # Step 4: add contact contributions if contact is given
         if self.contact is not None:
@@ -473,7 +484,7 @@ class NonMatchingCoupling(object):
                 ref_error = current_norm
 
             rel_norm = current_norm/ref_error
-            if newton_iter > 0:
+            if newton_iter >= 0:
                 if MPI.rank(self.comm) == 0:
                     print("Solver iteration: {}, relative norm: {:.12}."\
                         .format(newton_iter, rel_norm))

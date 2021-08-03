@@ -121,7 +121,7 @@ def solve_nonsquare(A,b, perturbation=1e-12):
     detATA = np.linalg.det(ATA)
     if abs(detATA) < 1e-16:
         print("Matrix near sigular, adding perturbation to diagonal entries.")
-        print("Determint of the Matrix: {:18.16f}".format(detATA))
+        print("Determint of the Matrix: {:10.6e}".format(detATA))
         ATA = ATA + np.eye(ATA.shape[0])*perturbation
     return np.linalg.solve(ATA, ATb)
 
@@ -158,9 +158,61 @@ def check_parametric_location(xi, u_lim, v_lim):
     lims = [u_lim, v_lim]
     for i in range(len(lims)):
         if xi[i] < lims[i][0]:
-            xi[i] = lims[i][0] + 1e-12
+            xi[i] = lims[i][0] + 1e-16
         elif xi[i] > lims[i][1]:
-            xi[i] = lims[i][1] - 1e-12
+            xi[i] = lims[i][1] - 1e-16
+
+def edge_detection(parametric_location, r=0.8, tol=1e-4, 
+                   u_lim=[0.,1.], v_lim=[0.,1.]):
+    """
+    Dectect if the ``parametric_location`` is located on the edge.
+
+    Parameters
+    ----------
+    parametric_location : ndarray
+    r : float
+        The ratio between the number of points that were thought on 
+        edge and the total number of points. Default is 0.8.
+    tol : float
+        The tolerance that treats a point is on the edge. Default is 1e-4.
+    u_lim : list of floats
+        The list that contains the limits in u-direction. Default 
+        is [0., 1.].
+    v_lim : list of floats
+        The list that contains the limits in v-direction. Default
+        is [0., 1.].
+
+    Returns 
+    -------
+    parametric_location : ndarray
+    """
+    num_pts = parametric_location.shape[0]
+    pts_start = int(num_pts*0.05)
+    pts_end = int(num_pts*0.95)
+    num_pts_test = parametric_location[pts_start:pts_end, :].shape[0]
+    u0_count, u1_count, v0_count, v1_count = 0, 0, 0, 0
+
+    for i in range(num_pts_test):
+        u_coord, v_coord = parametric_location[pts_start:pts_end,:][i]
+        if abs(u_coord - u_lim[0]) < tol:
+            u0_count += 1
+        elif abs(u_coord - u_lim[1]) < tol:
+            u1_count += 1
+        if abs(v_coord - v_lim[0]) < tol:
+            v0_count += 1
+        elif abs(v_coord - v_lim[1]) < tol:
+            v1_count += 1
+
+    if u0_count/num_pts_test > r:
+        parametric_location[:, 0] = np.ones(num_pts)*u_lim[0]
+    if u1_count/num_pts_test > r:
+        parametric_location[:, 0] = np.ones(num_pts)*u_lim[1]
+    if v0_count/num_pts_test > r:
+        parametric_location[:, 1] = np.ones(num_pts)*v_lim[0]
+    if v1_count/num_pts_test > r:
+        parametric_location[:, 1] = np.ones(num_pts)*v_lim[1]
+
+    return parametric_location
 
 def point_parametric_location(spline, X, u_lim=[0.,1.], v_lim=[0.,1.], 
                               max_iter=50, rtol=1e-6, increase_rtol=True,
@@ -248,9 +300,9 @@ def point_parametric_location(spline, X, u_lim=[0.,1.], v_lim=[0.,1.],
 
 def interface_parametric_location(spline, mortar_mesh, physical_location, 
                                   u_lim=[0.,1.], v_lim=[0.,1.], max_iter=20, 
-                                  rtol=1e-6, increase_rtol=True, max_rtol=1e-1, 
+                                  rtol=1e-9, increase_rtol=True, max_rtol=1e-1, 
                                   print_res=False, interp_phy_loc=True, 
-                                  r=0.7, edge_tol=1e-3):
+                                  r=0.8, edge_tol=1e-4):
     """
     Compute the parametric locations of the points of the non-matching 
     interface based on their physical locations and geometric mapping 
@@ -268,7 +320,7 @@ def interface_parametric_location(spline, mortar_mesh, physical_location,
     max_iter : int, optional
         Maximum number of Newton's iteration. Default is 20.
     rtol : float, optional
-        Convergence criteria of Newton's method. Default is 1e-6.
+        Convergence criteria of Newton's method. Default is 1e-9.
     increase_rtol : bool, optional
         If True, the rtol will increase and continue the iteration
         until the max_rtol is reached. Default is True.
@@ -284,10 +336,10 @@ def interface_parametric_location(spline, mortar_mesh, physical_location,
         interpolate the parametric locations later. Default is False.
     r : float, optional
         The ratio that is used to determine if the parametric points
-        are located on edge. Default is 0.7.
+        are located on edge. Default is 0.8.
     edge_tol : float, optional
         The tolerance that is used to determine if the parametric points
-        are located on edge. Default is 0.7.
+        are located on edge. Default is 1e-4.
 
     Returns
     -------

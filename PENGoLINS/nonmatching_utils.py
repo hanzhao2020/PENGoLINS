@@ -503,6 +503,23 @@ def create_nested_PETScMat(A_list, comm=worldcomm):
     A.assemble()
     return A
 
+def ksp_solver(ksp_type=PETSc.KSP.Type.CG, pc_type=PETSc.PC.Type.LU, 
+               rtol=1e-15):
+    """
+    Create PETSc KSP solver with type of ``ksp_type``.
+
+    Parameters
+    ----------
+    ksp_type : type of KSP solver, optional
+    rtol : float, solver tolerance, optional
+    """
+    ksp = PETSc.KSP().create()
+    ksp.setType(ksp_type)
+    ksp.getPC().setType(pc_type)
+    ksp.setTolerances(rtol=rtol)
+    ksp.setFromOptions()
+    return ksp
+
 def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, 
               pc_type=PETSc.PC.Type.LU, rtol=1e-15):
     """
@@ -520,9 +537,9 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG,
     ksp.setType(ksp_type)
     ksp.getPC().setType(pc_type)
     ksp.setTolerances(rtol=rtol)
-    ksp.setOperators(A)
     ksp.setFromOptions()
-    ksp.solve(b,x)
+    ksp.setOperators(A)
+    ksp.solve(b, x)
 
 def solve_nested_mat(A, x, b, solver=None):
     """
@@ -533,20 +550,24 @@ def solve_nested_mat(A, x, b, solver=None):
     A : nested PETSc.Mat
     x : nested PETSc.Vec
     b : nested PETSc.Vec
-    solver : {'KSP'}, optional, if None, use dolfin solver
+    solver : None, 'ksp', PESTc.KSP, PETScLUSolver, PETScKrylovSolver. 
+        If None, use dolfin solver
     """
     if not isinstance(A, PETSC4PY_MATRIX):
         raise TypeError("Type "+str(type(A))+" is not supported yet.")
-
+    if A.type != 'seqaij':
+        A.convert('seqaij')
     if solver is None:
-        if A.type != 'seqaij':
-            A.convert('seqaij')
         solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "mumps")
-        # solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "gmres")
     elif solver == 'ksp':
         ksp_solve(A, x, b)
+    elif isinstance(solver, PETSc.KSP):
+        solver.setOperators(A)
+        solver.solve(b, x)
     else:
-        raise TypeError("Solver "+solver+" is not supported yet.")
+        solver.ksp().setOperators(A=A)
+        solver.ksp().solve(b, x)
+        solver.ksp().reset()
 
 def save_results(spline, u, index, file_name="u", save_path=SAVE_PATH, 
                  folder="results/", save_cpfuncs=True, comm=worldcomm):
@@ -598,7 +619,8 @@ def save_results(spline, u, index, file_name="u", save_path=SAVE_PATH,
             File(comm, save_path + folder + name_control_mesh 
                 + "_file.pvd") << spline.cpFuncs[i]
 
-def save_cpfuncs(cpfuncs, index, save_path=SAVE_PATH, comm=worldcomm):
+def save_cpfuncs(cpfuncs, index, save_path=SAVE_PATH, folder="results/", 
+                 comm=worldcomm):
     """
     Save control point functions ``cpfuncs`` of an ExtractedSpline.
 
@@ -631,7 +653,7 @@ def save_cpfuncs(cpfuncs, index, save_path=SAVE_PATH, comm=worldcomm):
     for i in range(len(cpfuncs)):
         name_control_mesh = "cpfuncs" + str(index) + "_" + str(i)
         cpfuncs[i].rename(name_control_mesh, name_control_mesh)
-        File(comm, save_path + "results/" + name_control_mesh 
+        File(comm, save_path + folder + name_control_mesh 
             + "_file.pvd") << cpfuncs[i]
 
 def generate_interpolated_data(data, num_pts):
@@ -653,9 +675,9 @@ def generate_interpolated_data(data, num_pts):
     rows, cols = data.shape
 
     if rows > num_pts:
-        print("Number of points to interpolate {} is smaller than the number "
-              "of given points {}, removing points from data to match the "
-              "number of points.".format(num_pts, rows))
+        # print("Number of points to interpolate {} is smaller than the "
+        #       "number of given points {}, removing points from data to "
+        #       "match the number of points.".format(num_pts, rows))
         num_remove = rows - num_pts
         remove_ind = np.linspace(1, rows-2, num_remove, dtype=int)
         interp_data = np.delete(data, remove_ind, axis=0)
@@ -865,58 +887,6 @@ def move_mortar_mesh(mortar_mesh, mesh_location):
     um.vector().set_local(um_vec[:,0])
     ALE.move(mortar_mesh, um)
 
-def edge_detection(parametric_location, r=0.7, tol=1e-3, 
-                   u_lim=[0.,1.], v_lim=[0.,1.]):
-    """
-    Dectect if the ``parametric_location`` is located on the edge.
-
-    Parameters
-    ----------
-    parametric_location : ndarray
-    r : float
-        The ratio between the number of points that were thought on 
-        edge and the total number of points. Default is 0.7.
-    tol : float
-        The tolerance that treats a point is on the edge. Default is 1e-4.
-    u_lim : list of floats
-        The list that contains the limits in u-direction. Default 
-        is [0., 1.].
-    v_lim : list of floats
-        The list that contains the limits in v-direction. Default
-        is [0., 1.].
-
-    Returns 
-    -------
-    parametric_location : ndarray
-    """
-    num_pts = parametric_location.shape[0]
-    pts_start = int(num_pts*0.05)
-    pts_end = int(num_pts*0.95)
-    num_pts_test = parametric_location[pts_start:pts_end, :].shape[0]
-    u0_count, u1_count, v0_count, v1_count = 0, 0, 0, 0
-
-    for i in range(num_pts_test):
-        u_coord, v_coord = parametric_location[pts_start:pts_end,:][i]
-        if abs(u_coord - u_lim[0]) < tol:
-            u0_count += 1
-        elif abs(u_coord - u_lim[1]) < tol:
-            u1_count += 1
-        if abs(v_coord - v_lim[0]) < tol:
-            v0_count += 1
-        elif abs(v_coord - v_lim[1]) < tol:
-            v1_count += 1
-
-    if u0_count/num_pts_test > r:
-        parametric_location[:, 0] = np.ones(num_pts)*u_lim[0]
-    if u1_count/num_pts_test > r:
-        parametric_location[:, 0] = np.ones(num_pts)*u_lim[1]
-    if v0_count/num_pts_test > r:
-        parametric_location[:, 1] = np.ones(num_pts)*v_lim[0]
-    if v1_count/num_pts_test > r:
-        parametric_location[:, 1] = np.ones(num_pts)*v_lim[1]
-
-    return parametric_location
-
 def spline_mesh_phy_coordinates(spline, reshape=True):
     """
     Return the physical coordiantes of the spline mesh.
@@ -952,13 +922,12 @@ def spline_mesh_size(spline):
 
     Returns
     -------
-    h : ufl mathfunctions
+    h : ufl math functions
     """
     # dxi_dxiHat = 0.5*ufl.Jacobian(spline.mesh)
     # dX_dxi = grad(spline.F)
     # dX_dxiHat = dX_dxi*dxi_dxiHat
     # h = sqrt(tr(dX_dxiHat*dX_dxiHat.T))
-    
     h_param = CellDiameter(spline.mesh)
     dX_dxi = grad(spline.F)
     h = h_param*sqrt(tr(dX_dxi*dX_dxi.T))
