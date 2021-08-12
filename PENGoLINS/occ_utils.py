@@ -695,116 +695,6 @@ class BSplineSurfaceData(object):
         """
         return self.control[:,:,-1]
 
-# class BSplineSurfacesConnectedEdges1(object):
-#     """
-#     Class computes the connected edges between two OCC B-spline 
-#     surfaces based on their control points.
-#     """
-#     def __init__(self, surface0, surface1, rtol=1e-6):
-#         """
-#         Parameters
-#         ----------
-#         surface0 : OCC B-spline surface
-#         surface1 : OCC B-spline surface1
-#         rtol : float, optional. Default is 1e-6.
-#         """
-#         self.surface0 = surface0
-#         self.surface1 = surface1
-#         self.rtol = rtol
-
-#         self.surface0_data = BSplineSurfaceData(self.surface0)
-#         self.surface1_data = BSplineSurfaceData(self.surface1)
-#         self.surface0_face = make_face(surface0, 1e-6)
-#         self.surface1_face = make_face(surface1, 1e-6)
-#         self.surface0_edges = get_face_edges(self.surface0_face, bspline=True)
-#         self.surface1_edges = get_face_edges(self.surface1_face, bspline=True)
-
-#     @property
-#     def connected_ind(self):
-#         """
-#         Get the indices of the edges of the two B-spline surfaces 
-#         that connect together.
-
-#         Returns
-#         -------
-#         connected_ind : list of ints
-#         """
-#         connected_ind = []
-#         for i in range(len(self.surface0_edges)):
-#             e0 = self.surface0_edges[i]
-#             e0_data = BSplineCurveData(e0)
-#             e0_control = e0_data.control
-#             if (e0_control.shape[0] > 1 and not np.allclose(e0_control[0,:], 
-#                 e0_control[-1,:], rtol=self.rtol)):
-#                 for j in range(len(self.surface1_edges)):
-#                     e1 = self.surface1_edges[j]
-#                     e1_data = BSplineCurveData(e1)
-#                     e1_control = e1_data.control
-#                     if e0_control.shape[0] == e1_control.shape[0]:
-#                         if (e1_control.shape[0] > 1 and not 
-#                             np.allclose(e1_control[0,:], e1_control[-1,:], 
-#                                 rtol=self.rtol)):
-#                             e0_control_flip = e0_control[::-1]
-#                             if (np.allclose(e0_control, e1_control, 
-#                                 rtol=self.rtol) or 
-#                                 np.allclose(e0_control_flip, e1_control, 
-#                                 rtol=self.rtol)):
-#                                 connected_ind += [[i, j]]
-#         return connected_ind
-
-#     @property
-#     def connected_edges(self):
-#         """
-#         Compute the OCC B-spline curve of the connected edges.
-
-#         Returns
-#         -------
-#         connected_edges : list of OCC Geom_Curves
-#         """
-#         connected_edges = []
-#         for i in range(len(self.connected_ind)):
-#             # connected_edges += [[self.surface0_edges[
-#             #                      self.connected_ind[i][0]], 
-#             #                      self.surface1_edges[
-#             #                      self.connected_ind[i][1]]]]
-#             edge = self.surface0_edges[self.connected_ind[i][0]]
-#             connected_edges += [GeomAdaptor_Curve(edge).Curve(),]
-#         return connected_edges
-
-#     @property
-#     def num_connected_edges(self):
-#         """
-#         Return the number of connected edges between two OCC B-spline
-#         surfaces.
-
-#         Returns
-#         -------
-#         res : int
-#         """
-#         return len(self.connected_edges)
-    
-#     def connected_edge_coords(self, num_pts=20, sort_axis=None):
-#         """
-#         Return the coordinates of the connected edges.
-
-#         Parameters
-#         ----------
-#         num_pts : int
-#         sort_axis : int, {1, 2, 3}, optional 
-
-#         Returns
-#         -------
-#         connected_edge_coords : list of ndarray
-#         """
-#         connected_edge_coords = []
-#         for i in range(len(self.connected_edges)):
-#             connected_edge_coords += [get_curve_coord(
-#                                       self.connected_edges[i], 
-#                                       num_pts, sort_axis)]
-
-#         return connected_edge_coords
-
-
 class BSplineSurfacesConnectedEdges(object):
     """
     Class computes the connected edges between two OCC B-spline 
@@ -866,7 +756,7 @@ class BSplineSurfacesConnectedEdges(object):
         """
         return len(self.connected_edges)
 
-    def connected_edge_coords(self, ind, num_pts=20, sort_axis=None):
+    def get_coordinate(self, ind, num_pts=20, sort_axis=None):
         """
         Return the physical coordinates of ``ind``-th connected edge.
 
@@ -885,7 +775,7 @@ class BSplineSurfacesConnectedEdges(object):
                                               num_pts, sort_axis)
         return connected_edge_coords
     
-    def connected_edges_coords(self, num_pts=20, sort_axis=None):
+    def get_coordinates(self, num_pts=20, sort_axis=None):
         """
         Return the coordinates of the connected edges.
 
@@ -909,8 +799,7 @@ class BSplineSurfacesConnectedEdges(object):
                   " empty list.")
         return connected_edges_coords
 
-    def connected_edge_parametric_coords(self, ind, num_pts=20, 
-                                         sort_axis=None):
+    def get_parametric_coordinate(self, ind, num_pts=20, sort_axis=None):
         """
         Return the parametric coordinates of ``ind``-th connected edge.
 
@@ -926,14 +815,14 @@ class BSplineSurfacesConnectedEdges(object):
         """
         assert ind < self.num_connected_edges and ind >= 0
 
-        edge_phy_coords = self.connected_edge_coords(ind, num_pts, sort_axis)
+        edge_phy_coords = self.get_coordinate(ind, num_pts, sort_axis)
         connected_edge_para_coords = [parametric_coord(edge_phy_coords, 
                                                        self.surface0), 
                                       parametric_coord(edge_phy_coords, 
                                                        self.surface1)]
         return connected_edge_para_coords
 
-    def connected_edges_parametric_coords(self, num_pts=20, sort_axis=None):
+    def get_parametric_coordinates(self, num_pts=20, sort_axis=None):
         """
         Return the parametric coordinates of the connected edges.
 
@@ -950,8 +839,7 @@ class BSplineSurfacesConnectedEdges(object):
         if self.num_connected_edges > 0:
             for i in range(self.num_connected_edges):
                 connected_edges_para_coords += \
-                    [self.connected_edge_parametric_coords(i, num_pts, 
-                                                           sort_axis)]
+                    [self.get_parametric_coordinate(i, num_pts, sort_axis)]
         else:
             print("Surface-surface connected edges are not detected, returns",
                   " empty list.")
@@ -971,14 +859,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         rtol : float, optional. Default is 1e-6.
         """
         super().__init__(surface0, surface1)
-        # super().__init__(surface0, surface1, rtol=rtol)
-
         self.int_ss = GeomAPI_IntSS(surface0, surface1, rtol)
-        
-        # if self.num_connected_edges > 0:
-        #     self.on_edge = True
-        # else:
-        #     self.on_edge = False
 
     @property
     def num_intersections(self):
@@ -1039,7 +920,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
                     intersections += [self.int_ss.Line(i+1)]
         return intersections
 
-    def intersection_coords(self, ind, num_pts=20, sort_axis=None):
+    def get_coordinate(self, ind, num_pts=20, sort_axis=None):
         """
         Return the physical coordinates of ``ind``-th intersection curve.
 
@@ -1058,7 +939,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
                                      num_pts, sort_axis)
         return int_coords
 
-    def intersections_coords(self, num_pts=20, sort_axis=None):
+    def get_coordinates(self, num_pts=20, sort_axis=None):
         """
         Return the physical coordinates of the intersection curves.
 
@@ -1081,7 +962,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
                   "empty list.")
         return ints_coords
 
-    def intersection_parametric_coords(self, ind, num_pts=20, sort_axis=None):
+    def get_parametric_coordinate(self, ind, num_pts=20, sort_axis=None):
         """
         Return the parametric coordinates of ``ind``-th intersection curve.
 
@@ -1096,12 +977,12 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         int_para_coords : list of two ndarray
         """
         assert ind < self.num_intersections and ind >= 0
-        int_phy_coords = self.intersection_coords(ind, num_pts, sort_axis)
+        int_phy_coords = self.get_coordinate(ind, num_pts, sort_axis)
         int_para_coords = [parametric_coord(int_phy_coords, self.surface0), 
                            parametric_coord(int_phy_coords, self.surface1)]
         return int_para_coords
 
-    def intersections_parametric_coords(self, num_pts=20, sort_axis=None):
+    def get_parametric_coordinates(self, num_pts=20, sort_axis=None):
         """
         Return the parametric coordinates of the intersection curves.
 
@@ -1117,7 +998,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         ints_para_coords = []
         if self.num_intersections > 0:
             for i in range(self.num_intersections):
-                ints_para_coords += [self.intersection_parametric_coords(i, 
+                ints_para_coords += [self.get_parametric_coordinate(i, 
                                      num_pts, sort_axis)]
         else:
             print("Surface-surface intersections are not detected, returns ",

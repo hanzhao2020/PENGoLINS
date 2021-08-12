@@ -14,8 +14,7 @@ class NonMatchingCoupling(object):
     multiple spline patches.
     """
     def __init__(self, splines, E, h_th, nu, num_field=3, 
-                 int_measure_metadata=None, residuals=None, 
-                 contact=None, transfer_derivative=True, 
+                 contact=None, int_measure_metadata=None, 
                  comm=worldcomm):
         """
         Pass the list of splines and number of element for 
@@ -25,12 +24,16 @@ class NonMatchingCoupling(object):
         Parameters
         ----------
         splines : list of ExtractedSplines
-        E : ufl Constant, Young's modulus
-        h_th : ufl Constant, thickness of the splines
-        nu : ufl Constant, Poisson's ratio
+        E : ufl Constant or list, Young's modulus
+        h_th : ufl Constant or list, thickness of the splines
+        nu : ufl Constant or list, Poisson's ratio
         num_field : int, optional
             Number of field of the unknowns. Default is 3.
-        transfer_derivative : bool, optional, default is True.
+        contact : ShNAPr.contact.ShellContactContext, optional
+        int_measure_metadata : dict, optional
+            Metadata information for integration measure of 
+            intersection curves.
+        comm : mpi4py.MPI.Intarcomm, optional
         """
         if not isinstance(comm, type(worldcomm)):
             self.comm = worldcomm
@@ -66,8 +69,6 @@ class NonMatchingCoupling(object):
         else:
             self.nu = [nu for i in range(self.num_splines)]
 
-        self.transfer_derivative = transfer_derivative
-
         self.spline_funcs = [Function(spline.V) for spline in self.splines]
         self.spline_test_funcs = [TestFunction(spline.V) 
                                   for spline in self.splines]
@@ -79,12 +80,6 @@ class NonMatchingCoupling(object):
         else:
             self.int_measure_metadata = int_measure_metadata
 
-        self.residuals = residuals
-        if self.residuals is not None:
-            self.Dres = [derivative(self.residuals[i], self.spline_funcs[i]) 
-                         for i in range(self.num_splines)]
-        else:
-            self.Dres = None
         self.contact = contact
 
     def create_mortar_meshes(self, num_el_list, mortar_pts_list=None):
@@ -139,7 +134,6 @@ class NonMatchingCoupling(object):
         family : str, specification of the element family.
         degree : int    
         """
-
         self.dVms = []
         self.dVms_control = []
         self.mortar_funcs_dxi = [[] for i in range(self.geom_dim)]
@@ -170,10 +164,8 @@ class NonMatchingCoupling(object):
             self.mortar_vars += [[[],[]],]
             for j in range(2):
                 self.mortar_vars[i][j] += [self.mortar_funcs[i][j],]
-                if self.transfer_derivative:
-                    for k in range(self.geom_dim):
-                        self.mortar_vars[i][j] += \
-                            [self.mortar_funcs_dxi[k][i][j],]
+                for k in range(self.geom_dim):
+                    self.mortar_vars[i][j] += [self.mortar_funcs_dxi[k][i][j]]
 
     def mortar_meshes_setup(self, mapping_list, mortar_meshes_locations, 
                             penalty_coefficient=1e3):
@@ -204,28 +196,18 @@ class NonMatchingCoupling(object):
                 move_mortar_mesh(self.mortar_meshes[i], 
                                  mortar_meshes_locations[i][j])
                 # Create transfer matrices
-                if self.transfer_derivative:
-                    transfer_matrices[j] = create_transfer_matrix_list(
-                        self.splines[self.mapping_list[i][j]].V, 
-                        self.Vms[i], self.dVms[i])
-                    transfer_matrices_control[j] = create_transfer_matrix_list(
-                        self.splines[self.mapping_list[i][j]].V_control, 
-                        self.Vms_control[i], self.dVms_control[i])
-                    transfer_matrices_linear[j] = create_transfer_matrix(
-                        self.splines[self.mapping_list[i][j]].V_linear,
-                        self.Vms_control[i])
-                else:
-                    transfer_matrices[j] = create_transfer_matrix_list(
-                        self.splines[self.mapping_list[i][j]].V, self.Vms[i])
-                    transfer_matrices_control[j] = create_transfer_matrix_list(
-                        self.splines[self.mapping_list[i][j]].V_control, 
-                        self.Vms_control[i])
-                    transfer_matrices_linear[j] = create_transfer_matrix(
-                        self.splines[self.mapping_list[i][j]].V_linear,
-                        self.Vms_control[i])
+                transfer_matrices[j] = create_transfer_matrix_list(
+                    self.splines[self.mapping_list[i][j]].V, 
+                    self.Vms[i], self.dVms[i])
+                transfer_matrices_control[j] = create_transfer_matrix_list(
+                    self.splines[self.mapping_list[i][j]].V_control, 
+                    self.Vms_control[i], self.dVms_control[i])
+                transfer_matrices_linear[j] = create_transfer_matrix(
+                    self.splines[self.mapping_list[i][j]].V_linear,
+                    self.Vms_control[i])
 
             self.transfer_matrices_list += [transfer_matrices,]
-            self.transfer_matrices_control_list += [transfer_matrices_control,]
+            self.transfer_matrices_control_list += [transfer_matrices_control]
             self.transfer_matrices_linear_list += [transfer_matrices_linear,]
 
             s_ind0, s_ind1 = mapping_list[i]
@@ -265,7 +247,7 @@ class NonMatchingCoupling(object):
             self.alpha_d_list += [alpha_d,]
             self.alpha_r_list += [alpha_r,]
 
-    def set_residuals(self, residuals, Dres=None,  
+    def set_residuals(self, residuals, deriv_residuals=None,  
                       point_sources=None, point_source_inds=None):
         """
         Specify the shell residuals.
@@ -273,16 +255,18 @@ class NonMatchingCoupling(object):
         Parameters
         ----------
         residuals : list of ufl forms
-        Dres : list of ufl forms or None, default is None
+        deriv_residuals : list of ufl forms or None, default is None
         point_sources : list of dolfin PointSources, default is None
         point_source_inds : list of inds, default is None
         """
-        self.residuals = residuals
-        if Dres is not None:
-            self.Dres = Dres
-        else:
-            self.Dres = [derivative(self.residuals[i], self.spline_funcs[i]) 
-                         for i in range(self.num_splines)]
+        if deriv_residuals is None:
+            deriv_residuals = [derivative(residuals[i], self.spline_funcs[i]) 
+                                          for i in range(self.num_splines)]
+
+        # Convert residuals and derivatives from ufl.form.From
+        # to dolfin.fem.form.Form
+        self.residuals = [Form(res) for res in residuals]
+        self.deriv_residuals = [Form(Dres) for Dres in deriv_residuals]
 
         if point_sources is None and point_source_inds is not None:
             raise RuntimeError("``point_sources`` has to be given ", 
@@ -305,7 +289,7 @@ class NonMatchingCoupling(object):
         dR_du_FE = []
         for i in range(self.num_splines):
             R_assemble = assemble(self.residuals[i])
-            dR_du_assemble = assemble(self.Dres[i])
+            dR_du_assemble = assemble(self.deriv_residuals[i])
             if self.point_sources is not None:
                 for j, ps_ind in enumerate(self.point_source_inds):
                     if ps_ind == i:

@@ -284,7 +284,8 @@ def zero_petsc_vec(num_el, vec_type='seq', comm=worldcomm):
     v.assemble()
     return v
 
-def zero_petsc_mat(row, col, mat_type='seqaij', comm=worldcomm):
+def zero_petsc_mat(row, col, mat_type='seqaij', 
+                   PREALLOC=500, comm=worldcomm):
     """
     Create zeros PETSc matrix with shape (``row``, ``col``).
 
@@ -304,6 +305,8 @@ def zero_petsc_mat(row, col, mat_type='seqaij', comm=worldcomm):
     A.createAIJ([row, col], comm=comm)
     # A.setSizes([row, col])
     # A.setType(mat_type)
+    A.setPreallocationNNZ([PREALLOC, PREALLOC])
+    A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
     A.setUp()
     A.assemble()
     return A
@@ -485,7 +488,7 @@ def create_nested_PETScVec(v_list, comm=worldcomm):
     v.assemble()
     return v
 
-def create_nested_PETScMat(A_list, comm=worldcomm):
+def create_nested_PETScMat(A_list, PREALLOC=500, comm=worldcomm):
     """
     Create nested PETSc.Mat from ``A_list``.
 
@@ -499,6 +502,8 @@ def create_nested_PETScMat(A_list, comm=worldcomm):
     """
     A = PETSc.Mat(comm)
     A.createNest(A_list, comm=comm)
+    A.setPreallocationNNZ([PREALLOC, PREALLOC])
+    A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
     A.setUp()
     A.assemble()
     return A

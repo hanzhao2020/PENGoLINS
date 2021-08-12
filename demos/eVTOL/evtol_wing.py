@@ -69,10 +69,10 @@ print("Number of surfaces:", num_srfs)
 num_pts_eval = [16]*num_srfs
 # Knots insertion for outer skin; spars; ribs
 u_insert_list = [16, 15, 14, 13, 1, 1] \
-              + [12, 11, 10] + [6]*12  
+              + [16, 17, 18] + [4]*12  
 v_insert_list = [8, 7, 6, 5, 12, 11] \
-              + [1]*3 + [2]*12
-ref_level = 2
+              + [1]*3 + [1]*12
+ref_level = 1
 
 u_num_insert = [i*ref_level for i in u_insert_list]
 v_num_insert = [i*ref_level for i in v_insert_list]
@@ -117,7 +117,7 @@ for i in range(num_srfs):
                            *bs_intersect.num_intersections
             intersection_curves += bs_intersect.intersections
             intersections_para_coords += \
-                bs_intersect.intersections_parametric_coords(
+                bs_intersect.get_parametric_coordinates(
                     num_pts=int((mortar_nels[-1])*1.1))
 
 num_interfaces = len(mapping_list)
@@ -203,18 +203,18 @@ for i in range(problem.num_splines):
                             von_Mises_bot, lumpMass=True)
     von_Mises_bots += [von_Mises_bot_proj]
 
-print("Saving results...")
-for i in range(problem.num_splines):
-    save_results(splines[i], problem.spline_funcs[i], i, 
-                 save_path=SAVE_PATH, folder="results/", 
-                 save_cpfuncs=True, comm=selfcomm)
+# print("Saving results...")
+# for i in range(problem.num_splines):
+#     save_results(splines[i], problem.spline_funcs[i], i, 
+#                  save_path=SAVE_PATH, folder="results/", 
+#                  save_cpfuncs=True, comm=selfcomm)
 
-    von_Mises_tops[i].rename("von_Mises_top_"+str(i), 
-                             "von_Mises_top_"+str(i))
-    File(SAVE_PATH+"results/von_Mises_top_"+str(i)+".pvd") \
-        << von_Mises_tops[i]
+#     von_Mises_tops[i].rename("von_Mises_top_"+str(i), 
+#                              "von_Mises_top_"+str(i))
+#     File(SAVE_PATH+"results/von_Mises_top_"+str(i)+".pvd") \
+#         << von_Mises_tops[i]
 
-    von_Mises_bots[i].rename("von_Mises_bot_"+str(i), 
-                             "von_Mises_bot_"+str(i))
-    File(SAVE_PATH+"results/von_Mises_bot_"+str(i)+".pvd") \
-        << von_Mises_bots[i]
+#     von_Mises_bots[i].rename("von_Mises_bot_"+str(i), 
+#                              "von_Mises_bot_"+str(i))
+#     File(SAVE_PATH+"results/von_Mises_bot_"+str(i)+".pvd") \
+#         << von_Mises_bots[i]

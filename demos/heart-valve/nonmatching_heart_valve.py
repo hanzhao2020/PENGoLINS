@@ -125,7 +125,7 @@ for i in range(num_srfs):
                            *bs_intersect.num_intersections
             intersection_curves += bs_intersect.intersections
             intersections_para_coords += \
-                bs_intersect.intersections_parametric_coords(
+                bs_intersect.get_parametric_coordinates(
                     num_pts=int((mortar_nels[-1])*1.1))
 
 num_interfaces = len(mapping_list)
