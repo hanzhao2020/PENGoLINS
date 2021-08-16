@@ -91,8 +91,10 @@ if mpirank == 0:
 ikNURBS_srfs = [ik_nurbs for ik_nurbs_i in nonmatching_nurbs_srfs \
                 for ik_nurbs in ik_nurbs_i]
 num_srfs = len(ikNURBS_srfs)
+
 if mpirank == 0:
     print("Number of non-matching shell patches:", num_srfs)
+
 splines = []
 bcs_funcs = [zero_bc, zero_bc, None, zero_bc]*3
 bcs = [[0,0], [0,1], [None, None], [1,1]]*3
@@ -102,13 +104,12 @@ for i in range(num_srfs):
                                    index=i),]
 
 # Compute physical locations of non-matching interfaces
-if mpirank == 0:
-    print("Computing non-matching interfaces...")
 nonmatching_occ_bs_flat = [occ_bs for occ_bs_i in nonmatching_occ_bs \
                            for occ_bs in occ_bs_i]
 
 if mpirank == 0:
     print("Computing non-matching interfaces...")
+
 mapping_list = []
 mortar_nels = [] # Number of elements for mortar meshes
 intersection_curves = [] # List of intersection curves
@@ -129,9 +130,9 @@ for i in range(num_srfs):
                     num_pts=int((mortar_nels[-1])*1.1))
 
 num_interfaces = len(mapping_list)
+
 if mpirank == 0:
     print("Number of non-matching interfaces:", num_interfaces)
-
 
 # Define non-matching problem
 nonmatching_problem = NonMatchingCoupling(splines, E, h_th, nu, 

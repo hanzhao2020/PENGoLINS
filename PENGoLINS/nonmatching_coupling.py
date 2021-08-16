@@ -81,25 +81,26 @@ class NonMatchingCoupling(object):
             self.int_measure_metadata = int_measure_metadata
 
         self.contact = contact
+        self.residuals = None
 
-    def create_mortar_meshes(self, num_el_list, mortar_pts_list=None):
+    def create_mortar_meshes(self, mortar_nels_list, mortar_pts_list=None):
         """
         Create mortar meshes for non-matching with multiple patches.
 
         Parameters
         ----------
-        num_el_list : list of ints
+        mortar_nels_list : list of ints
             Contains number of elements for all mortar meshes.
         "mortar_pts_list" : list of ndarrays
             Contains points of location for all mortar meshes. 
             Default is None.
         """
-        self.num_interfaces = len(num_el_list)
+        self.num_interfaces = len(mortar_nels_list)
         if mortar_pts_list is None:
             mortar_pts_list = [np.array([[0.,0.],[0.,1.]]),]\
                             *self.num_interfaces
         self.mortar_meshes = [generate_mortar_mesh(mortar_pts_list[i], 
-                              num_el_list[i], comm=self.comm) 
+                              mortar_nels_list[i], comm=self.comm) 
                               for i in range(self.num_interfaces)]
 
     def create_mortar_funcs(self, family, degree):

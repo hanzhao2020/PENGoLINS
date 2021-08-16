@@ -10,7 +10,7 @@ def coeff_vec(n, p, peak_ind=None):
     vec[peak_ind:] = np.linspace(p, 1, n-peak_ind)
     return vec
 
-def seperate_leaflet(bspline_surf, p_u=3, p_v=3):
+def seperate_leaflet(BSpline_surf, p_u=3, p_v=3):
     # Seperate the original leaflet to 4 surfaces to avoid singularity
     # For surface 0
     t0, t00, t01 = 0., 0.15, 0.4
@@ -78,10 +78,10 @@ def seperate_leaflet(bspline_surf, p_u=3, p_v=3):
         para_loc3[:,i,0] = vec0
         para_loc3[:,i,1] = np.linspace(vec1[i], vec1[i], n0)
 
-    bs_sec0 = bspline_surface_section(bspline_surf, para_loc0, p_u, p_v)
-    bs_sec1 = bspline_surface_section(bspline_surf, para_loc1, p_u, p_v)
-    bs_sec2 = bspline_surface_section(bspline_surf, para_loc2, p_u, p_v)
-    bs_sec3 = bspline_surface_section(bspline_surf, para_loc3, p_u, p_v)
+    bs_sec0 = BSpline_surface_section(BSpline_surf, para_loc0, p_u, p_v)
+    bs_sec1 = BSpline_surface_section(BSpline_surf, para_loc1, p_u, p_v)
+    bs_sec2 = BSpline_surface_section(BSpline_surf, para_loc2, p_u, p_v)
+    bs_sec3 = BSpline_surface_section(BSpline_surf, para_loc3, p_u, p_v)
 
     bs_sec_list = [bs_sec0, bs_sec1, bs_sec2, bs_sec3]
     return bs_sec_list
@@ -144,18 +144,18 @@ for i in range(num_srfs):
     nurbs_srfs += [s]
 
 
-occ_bspline_surfs = [ikNURBS2BSplineSurface(s) for s in nurbs_srfs]
+occ_bspline_surfs = [ikNURBS2BSpline_surface(s) for s in nurbs_srfs]
 nonmatching_occ_bs = []
 for i in range(num_srfs):
     nonmatching_occ_bs += [seperate_leaflet(occ_bspline_surfs[i],
-                            p_u=nurbs_srfs[i].degree[0],
-                            p_v=nurbs_srfs[i].degree[1]),]
+                           p_u=nurbs_srfs[i].degree[0],
+                           p_v=nurbs_srfs[i].degree[1]),]
 
 nonmatching_nurbs_srfs = []
 for i in range(len(nonmatching_occ_bs)):
     nonmatching_nurbs_srfs += [[],]
     for j in range(len(nonmatching_occ_bs[i])):
-        nonmatching_nurbs_srfs[i] += [Bspline_surface2ikNURBS_refine(
+        nonmatching_nurbs_srfs[i] += [BSpline_surface2ikNURBS(
             nonmatching_occ_bs[i][j], 3, 0, 0),]
         # # Write non-matching heart valves into VTK files
         # write_dir = "./nonmatching_leaflets/"

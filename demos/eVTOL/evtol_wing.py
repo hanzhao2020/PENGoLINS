@@ -52,7 +52,7 @@ penalty_coefficient = 1.0e3
 print("Importing geometry...")
 filename_igs = "eVTOL_wing_structure.igs"
 igs_shapes = read_igs_file(filename_igs, as_compound=False)
-evtol_surfaces = [topoface2surface(face, bspline=True) 
+evtol_surfaces = [topoface2surface(face, BSpline=True) 
                   for face in igs_shapes]
 
 # Outer skin indices: list(range(12, 18))
@@ -80,11 +80,11 @@ v_num_insert = [i*ref_level for i in v_insert_list]
 reconstructed_srfs = []
 ikNURBS_srfs = []
 for i in range(num_srfs):
-    recon_bs_surface = reconstruct_occ_Bspline_surface(wing_surfaces[i], 
+    recon_bs_surface = reconstruct_BSpline_surface(wing_surfaces[i], 
                        u_num_eval=num_pts_eval[i], v_num_eval=num_pts_eval[i], 
                        tol3D=1e-3, geom_scale=geom_scale)
     reconstructed_srfs += [recon_bs_surface]
-    ikNURBS_srfs += [Bspline_surface2ikNURBS_refine(recon_bs_surface, p, 
+    ikNURBS_srfs += [BSpline_surface2ikNURBS(recon_bs_surface, p=p, 
                       u_num_insert=u_num_insert[i], 
                       v_num_insert=v_num_insert[i]),]
 
@@ -92,7 +92,6 @@ for i in range(num_srfs):
 # for i in range(num_srfs):
 #     ik_srfs_filenames = "evtol_wing"+str(i)+".vtk"
 #     VTK().write(SAVE_PATH+"evtol_srfs/"+ik_srfs_filenames, ikNURBS_srfs[i])
-# exit()
 
 total_cp = 0
 for i in range(num_srfs):
@@ -131,7 +130,6 @@ print("Number of non-matching interfaces:", num_interfaces)
 # display, start_display, add_menu, add_function_to_menu = init_display()
 # for i in range(len(intersection_curves)):
 #     display.DisplayShape(intersection_curves[i], color='BLUE')
-# exit()
 
 print("Creating splines...")
 splines = []
@@ -203,18 +201,18 @@ for i in range(problem.num_splines):
                             von_Mises_bot, lumpMass=True)
     von_Mises_bots += [von_Mises_bot_proj]
 
-# print("Saving results...")
-# for i in range(problem.num_splines):
-#     save_results(splines[i], problem.spline_funcs[i], i, 
-#                  save_path=SAVE_PATH, folder="results/", 
-#                  save_cpfuncs=True, comm=selfcomm)
+print("Saving results...")
+for i in range(problem.num_splines):
+    save_results(splines[i], problem.spline_funcs[i], i, 
+                 save_path=SAVE_PATH, folder="results/", 
+                 save_cpfuncs=True, comm=selfcomm)
 
-#     von_Mises_tops[i].rename("von_Mises_top_"+str(i), 
-#                              "von_Mises_top_"+str(i))
-#     File(SAVE_PATH+"results/von_Mises_top_"+str(i)+".pvd") \
-#         << von_Mises_tops[i]
+    von_Mises_tops[i].rename("von_Mises_top_"+str(i), 
+                             "von_Mises_top_"+str(i))
+    File(SAVE_PATH+"results/von_Mises_top_"+str(i)+".pvd") \
+        << von_Mises_tops[i]
 
-#     von_Mises_bots[i].rename("von_Mises_bot_"+str(i), 
-#                              "von_Mises_bot_"+str(i))
-#     File(SAVE_PATH+"results/von_Mises_bot_"+str(i)+".pvd") \
-#         << von_Mises_bots[i]
+    von_Mises_bots[i].rename("von_Mises_bot_"+str(i), 
+                             "von_Mises_bot_"+str(i))
+    File(SAVE_PATH+"results/von_Mises_bot_"+str(i)+".pvd") \
+        << von_Mises_bots[i]

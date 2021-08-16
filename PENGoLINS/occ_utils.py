@@ -118,21 +118,21 @@ def TColStdArray1OfReal2Array(TColStdArray, dtype="float64"):
         np_array[i] = TColStdArray.Value(i+1)
     return np_array
 
-def topoedge2curve(topo_edge, bspline=False):
+def topoedge2curve(topo_edge, BSpline=False):
     """
     Convert OCC topo edge to OCC Geom Curve.
 
     Parameters
     ----------
     topo_edge : OCC edge
-    bspline : bool, optional
+    BSpline : bool, optional
 
     Returns
     -------
     curve : OCC curve
     """
     edge_adaptor = BRepAdaptor_Curve(topo_edge)
-    if bspline:
+    if BSpline:
         curve = edge_adaptor.BSpline()
     else:
         curve = edge_adaptor.Curve().Curve()
@@ -153,34 +153,34 @@ def surface2topoface(surface, tol=1e-6):
     """
     return make_face(surface, tol)
 
-def topoface2surface(topo_face, bspline=False):
+def topoface2surface(topo_face, BSpline=False):
     """
     Convert OCC topo face to OCC Geom Surface.
 
     Parameters
     ----------
     topo_edge : OCC face
-    bspline : bool, optional, default is False.
+    BSpline : bool, optional, default is False.
 
     Returns
     -------
     surface : OCC surface
     """
     face_adaptor = BRepAdaptor_Surface(topo_face)
-    if bspline:
+    if BSpline:
         surface = face_adaptor.BSpline()
     else:
         surface = face_adaptor.Surface().Surface()
     return surface
 
-def copy_surface(surface, bspline=False):
+def copy_surface(surface, BSpline=False):
     """
     Duplicate OCC Geom_Surface
 
     Parameters
     ----------
     surface : OCC Geom Surface or OCC Geom BSplineSurface
-    bspline : bool, optional
+    BSpline : bool, optional
 
     Returns
     -------
@@ -188,7 +188,7 @@ def copy_surface(surface, bspline=False):
     """
     surface_shape = surface2topoface(surface)
     surface_shape_copy = BRepBuilderAPI_Copy(surface_shape).Shape()
-    surface_copy = topoface2surface(surface_shape_copy, bspline=bspline)
+    surface_copy = topoface2surface(surface_shape_copy, BSpline=BSpline)
     return surface_copy
 
 def get_curve_coord(curve, num_pts=20, sort_axis=None, flip=False):
@@ -224,14 +224,14 @@ def get_curve_coord(curve, num_pts=20, sort_axis=None, flip=False):
         curve_coord = curve_coord[::-1]
     return curve_coord
 
-def get_face_edges(face, bspline=False):
+def get_face_edges(face, BSpline=False):
     """
     Return a list of edges of a OCC face.
 
     Parameters
     ----------
     face : OCC face
-    bspline : bool, optional, default is false.
+    BSpline : bool, optional, default is false.
 
     Returns
     -------
@@ -240,28 +240,11 @@ def get_face_edges(face, bspline=False):
     face_te = TopologyExplorer(face)
     edges = []
     for edge in face_te.edges():
-        edge_test = topoedge2curve(edge, bspline=False)
+        edge_test = topoedge2curve(edge, BSpline=False)
         if edge_test != None:
-            edge_curve = topoedge2curve(edge, bspline) 
+            edge_curve = topoedge2curve(edge, BSpline) 
             edges += [edge_curve,]
     return edges
-
-def BSplineSurface2ikNURBS(bspline_surface):
-    """
-    Convert OCC B-spline surface to igakit NURBS.
-
-    Parameters
-    ----------
-    bspline_surface : OCC B-spline surface
-
-    Returns
-    -------
-    ik_NURBS : igakit NURBS
-    """
-    bspline_surface_data = BSplineSurfaceData(bspline_surface)
-    ik_NURBS = NURBS(bspline_surface_data.knots, 
-                     bspline_surface_data.control)
-    return ik_NURBS
 
 def project_locations_on_surface(locations, surf):
     """
@@ -306,9 +289,9 @@ def parametric_coord(locations, surf):
         uv_coords += [pt_proj.LowerDistanceParameters(),]
     return np.array(uv_coords)
 
-def reconstruct_occ_Bspline_surface(occ_bs, u_num_eval=30, v_num_eval=30, 
-                                    bs_degree=3, bs_continuity=3, 
-                                    tol3D=1e-3, geom_scale=1.):
+def reconstruct_BSpline_surface(occ_bs, u_num_eval=30, v_num_eval=30, 
+                                bs_degree=3, bs_continuity=3, 
+                                tol3D=1e-3, geom_scale=1.):
     """
     Return reconstructed B-spline surface by evaluating the positions
     of the original surface.
@@ -345,11 +328,12 @@ def reconstruct_occ_Bspline_surface(occ_bs, u_num_eval=30, v_num_eval=30,
                                                 tol3D).Surface()
     return occ_bs_res
 
-def Bspline_surface2ikNURBS_refine(occ_bs_surface, p=3, 
-                                   u_num_insert=0, v_num_insert=0):
+
+def BSpline_surface2ikNURBS(occ_bs_surface, p=3, u_num_insert=0, 
+                            v_num_insert=0, refine=True):
     """
     Convert OCC BSplineSurface to igakit NURBS and refine the 
-    surface by inserting knots.
+    surface via knot insertion and order elevation as need.
 
     Parameters
     ----------
@@ -357,45 +341,49 @@ def Bspline_surface2ikNURBS_refine(occ_bs_surface, p=3,
     p : int, optional, default is 3.
     u_num_insert : int, optional, default is 0.
     v_num_insert : int, optional, default is 0.
+    refine : bool, default is True.
 
     Returns
     -------
     ikNURBS : igakit NURBS
     """
     bs_data = BSplineSurfaceData(occ_bs_surface)
-    u_multiplicity, v_multiplicity = \
-        BSpline_surface_interior_multiplicity(occ_bs_surface)
-
     ikNURBS = NURBS(bs_data.knots, bs_data.control)
-    ikNURBS.elevate(0, p-ikNURBS.degree[0])
-    ikNURBS.elevate(1, p-ikNURBS.degree[1])
-    u_knots, v_knots = bs_data.UKnots, bs_data.VKnots
 
-    if u_num_insert > 0:
-        u_knots_insert_single = np.linspace(0,1,u_num_insert+2)[1:-1]
-        for i in bs_data.UKnots:
-            for k in u_knots_insert_single:
-                if abs(i-k) < (1/u_num_insert/2):
-                    u_knots_insert_single = np.delete(u_knots_insert_single,
-                        np.argwhere(u_knots_insert_single==k))
-        u_knots_insert = []
-        for i in range(len(u_knots_insert_single)):
-            u_knots_insert += [u_knots_insert_single[i]]*u_multiplicity
-        ikNURBS.refine(0, u_knots_insert)
-        # print("u_knots_insert:", u_knots_insert)
+    if refine:
+        u_multiplicity, v_multiplicity = \
+            BSpline_surface_interior_multiplicity(occ_bs_surface)
+        ikNURBS.elevate(0, p-ikNURBS.degree[0])
+        ikNURBS.elevate(1, p-ikNURBS.degree[1])
+        u_knots, v_knots = bs_data.UKnots, bs_data.VKnots
 
-    if v_num_insert > 0:
-        v_knots_insert_single = np.linspace(0,1,v_num_insert+2)[1:-1]
-        for i in bs_data.VKnots:
-            for k in v_knots_insert_single:
-                if abs(i-k) < (1/v_num_insert/2):
-                    v_knots_insert_single = np.delete(v_knots_insert_single,
-                        np.argwhere(v_knots_insert_single==k))
-        v_knots_insert = []
-        for i in range(len(v_knots_insert_single)):
-            v_knots_insert += [v_knots_insert_single[i]]*v_multiplicity
-        ikNURBS.refine(1, v_knots_insert)
-        # print("v_knots_insert:", v_knots_insert)
+        if u_num_insert > 0:
+            u_knots_insert_single = np.linspace(0,1,u_num_insert+2)[1:-1]
+            for i in bs_data.UKnots:
+                for k in u_knots_insert_single:
+                    if abs(i-k) < (1/u_num_insert/2):
+                        u_knots_insert_single = np.delete(
+                            u_knots_insert_single,
+                            np.argwhere(u_knots_insert_single==k))
+            u_knots_insert = []
+            for i in range(len(u_knots_insert_single)):
+                u_knots_insert += [u_knots_insert_single[i]]*u_multiplicity
+            ikNURBS.refine(0, u_knots_insert)
+            # print("u_knots_insert:", u_knots_insert)
+
+        if v_num_insert > 0:
+            v_knots_insert_single = np.linspace(0,1,v_num_insert+2)[1:-1]
+            for i in bs_data.VKnots:
+                for k in v_knots_insert_single:
+                    if abs(i-k) < (1/v_num_insert/2):
+                        v_knots_insert_single = np.delete(
+                            v_knots_insert_single,
+                            np.argwhere(v_knots_insert_single==k))
+            v_knots_insert = []
+            for i in range(len(v_knots_insert_single)):
+                v_knots_insert += [v_knots_insert_single[i]]*v_multiplicity
+            ikNURBS.refine(1, v_knots_insert)
+            # print("v_knots_insert:", v_knots_insert)
 
     return ikNURBS
 
@@ -460,7 +448,7 @@ def count_knots_multiplicity(knots):
     knot_mult = np.array(knot_mult, dtype="int")
     return knot_mult
 
-def ikNURBS2BSplineSurface(ik_nurbs):
+def ikNURBS2BSpline_surface(ik_nurbs):
     """
     Convert igakit NNURBS to OCC Geom_BSplineSurface.
 
@@ -470,7 +458,7 @@ def ikNURBS2BSplineSurface(ik_nurbs):
 
     Returns
     -------
-    bspline_surf : OCC Geom_BSplineSurface
+    BSpline_surface : OCC Geom_BSplineSurface
     """
     num_control_u = ik_nurbs.control.shape[0]
     num_control_v = ik_nurbs.control.shape[1]
@@ -504,12 +492,12 @@ def ikNURBS2BSplineSurface(ik_nurbs):
         v_knots.SetValue(i+1, v_knots_unique[i])
         v_mults.SetValue(i+1, int(v_mults_array[i]))
 
-    bspline_surf = Geom_BSplineSurface(poles, weights, u_knots, v_knots, 
-                                       u_mults, v_mults, p_u, p_v)
+    BSpline_surface = Geom_BSplineSurface(poles, weights, u_knots, v_knots, 
+                                          u_mults, v_mults, p_u, p_v)
 
-    return bspline_surf
+    return BSpline_surface
 
-def bspline_surface_section(BSpline, para_loc, u_degree, v_degree, 
+def BSpline_surface_section(BSpline, para_loc, u_degree, v_degree, 
                             continuity=None, tol3D=1e-4):
     """
     Returns section of the OCC BSplineSurface based on parametric 
@@ -700,15 +688,15 @@ class BSplineSurfacesConnectedEdges(object):
     Class computes the connected edges between two OCC B-spline 
     surfaces based on their control points.
     """
-    def __init__(self, surface0, surface1):
+    def __init__(self, surf1, surf2):
         """
         Parameters
         ----------
-        surface0 : OCC B-spline surface
-        surface1 : OCC B-spline surface1
+        surf1 : OCC B-spline surface
+        surf2 : OCC B-spline surface
         """
-        self.surface0 = surface0
-        self.surface1 = surface1
+        self.surf1 = surf1
+        self.surf2 = surf2
 
     @property
     def connected_edges(self):
@@ -719,20 +707,20 @@ class BSplineSurfacesConnectedEdges(object):
         -------
         connected_edges : list of OCC Geom_Curves
         """
-        face0 = make_face(self.surface0, 1e-6)
+        face0 = make_face(self.surf1, 1e-6)
         edges0 = get_face_edges(face0)
         self.connected_edges0 = []
         for i in range(len(edges0)):
-            int_cs = GeomAPI_IntCS(edges0[i], self.surface1)
+            int_cs = GeomAPI_IntCS(edges0[i], self.surf2)
             int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
             if len(int_cs_coord) > 2:
                 self.connected_edges0 += [edges0[i],]
 
-        face1 = make_face(self.surface1, 1e-6)
+        face1 = make_face(self.surf2, 1e-6)
         edges1 = get_face_edges(face1)
         self.connected_edges1 = []
         for i in range(len(edges1)):
-            int_cs = GeomAPI_IntCS(edges1[i], self.surface0)
+            int_cs = GeomAPI_IntCS(edges1[i], self.surf1)
             int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
             if len(int_cs_coord) > 2:
                 self.connected_edges1 += [edges1[i],]
@@ -817,9 +805,9 @@ class BSplineSurfacesConnectedEdges(object):
 
         edge_phy_coords = self.get_coordinate(ind, num_pts, sort_axis)
         connected_edge_para_coords = [parametric_coord(edge_phy_coords, 
-                                                       self.surface0), 
+                                                       self.surf1), 
                                       parametric_coord(edge_phy_coords, 
-                                                       self.surface1)]
+                                                       self.surf2)]
         return connected_edge_para_coords
 
     def get_parametric_coordinates(self, num_pts=20, sort_axis=None):
@@ -850,16 +838,16 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
     """
     Class computes intersections between two B-spline surfaces.
     """
-    def __init__(self, surface0, surface1, rtol=1e-6):
+    def __init__(self, surf1, surf2, rtol=1e-6):
         """
         Parameters
         ----------
-        surface0 : OCC B-spline surface
-        surface1 : OCC B-spline surface1
+        surf1 : OCC B-spline surface
+        surf2 : OCC B-spline surface
         rtol : float, optional. Default is 1e-6.
         """
-        super().__init__(surface0, surface1)
-        self.int_ss = GeomAPI_IntSS(surface0, surface1, rtol)
+        super().__init__(surf1, surf2)
+        self.int_ss = GeomAPI_IntSS(surf1, surf2, rtol)
 
     @property
     def num_intersections(self):
@@ -978,8 +966,8 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         """
         assert ind < self.num_intersections and ind >= 0
         int_phy_coords = self.get_coordinate(ind, num_pts, sort_axis)
-        int_para_coords = [parametric_coord(int_phy_coords, self.surface0), 
-                           parametric_coord(int_phy_coords, self.surface1)]
+        int_para_coords = [parametric_coord(int_phy_coords, self.surf1), 
+                           parametric_coord(int_phy_coords, self.surf2)]
         return int_para_coords
 
     def get_parametric_coordinates(self, num_pts=20, sort_axis=None):
