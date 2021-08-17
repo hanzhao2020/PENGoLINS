@@ -82,25 +82,26 @@ class NonMatchingCoupling(object):
 
         self.contact = contact
         self.residuals = None
+        self.deriv_residuals = None
 
-    def create_mortar_meshes(self, mortar_nels_list, mortar_pts_list=None):
+    def create_mortar_meshes(self, mortar_nels, mortar_coords=None):
         """
         Create mortar meshes for non-matching with multiple patches.
 
         Parameters
         ----------
-        mortar_nels_list : list of ints
+        mortar_nels : list of ints
             Contains number of elements for all mortar meshes.
-        "mortar_pts_list" : list of ndarrays
+        "mortar_coords" : list of ndarrays
             Contains points of location for all mortar meshes. 
             Default is None.
         """
-        self.num_interfaces = len(mortar_nels_list)
-        if mortar_pts_list is None:
-            mortar_pts_list = [np.array([[0.,0.],[0.,1.]]),]\
+        self.num_interfaces = len(mortar_nels)
+        if mortar_coords is None:
+            mortar_coords = [np.array([[0.,0.],[0.,1.]]),]\
                             *self.num_interfaces
-        self.mortar_meshes = [generate_mortar_mesh(mortar_pts_list[i], 
-                              mortar_nels_list[i], comm=self.comm) 
+        self.mortar_meshes = [generate_mortar_mesh(mortar_coords[i], 
+                              mortar_nels[i], comm=self.comm) 
                               for i in range(self.num_interfaces)]
 
     def create_mortar_funcs(self, family, degree):
@@ -168,7 +169,7 @@ class NonMatchingCoupling(object):
                 for k in range(self.geom_dim):
                     self.mortar_vars[i][j] += [self.mortar_funcs_dxi[k][i][j]]
 
-    def mortar_meshes_setup(self, mapping_list, mortar_meshes_locations, 
+    def mortar_meshes_setup(self, mapping_list, mortar_parametric_coords, 
                             penalty_coefficient=1e3):
         """
         Set up coupling of non-matching system for mortar meshes.
@@ -176,7 +177,7 @@ class NonMatchingCoupling(object):
         Parameters
         ----------
         mapping_list : list of ints
-        mortar_meshes_locations : list of ndarrays
+        mortar_parametric_coords : list of ndarrays
         penalty_coefficient : float, optional, default is 1e3
         """
         self.__create_mortar_vars()
@@ -195,7 +196,7 @@ class NonMatchingCoupling(object):
             transfer_matrices_linear = [[], []]
             for j in range(len(self.mapping_list[i])):
                 move_mortar_mesh(self.mortar_meshes[i], 
-                                 mortar_meshes_locations[i][j])
+                                 mortar_parametric_coords[i][j])
                 # Create transfer matrices
                 transfer_matrices[j] = create_transfer_matrix_list(
                     self.splines[self.mapping_list[i][j]].V, 
@@ -286,6 +287,9 @@ class NonMatchingCoupling(object):
         # and derivatives.
         if self.residuals is None:
             raise RuntimeError("Shell residuals are not specified.") 
+        if self.deriv_residuals is None:
+            raise RuntimeError("Derivatives of shell residuals are"
+                               " not specified.") 
         R_FE = []
         dR_du_FE = []
         for i in range(self.num_splines):
