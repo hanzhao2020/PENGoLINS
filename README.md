@@ -2,7 +2,7 @@
 
 A Python module for **PEN**alty-based **GL**uing of **I**sogeometric **N**on-matching **S**hells (where the lower-case "o" is added for pronunciation; pronounced like "pangolins", mammals that are covered in large, protective scales). This framework performs isogeometric analysis (IGA) for collections of non-matching Kirchhoff--Love shells using the penalty method. 
 
-Details of penalty formulation for non-matching shells are given in Section 2 of
+The penalty formulation used here is partially based on Section 2 of
 
 https://doi.org/10.1016/j.cma.2018.08.038
 
