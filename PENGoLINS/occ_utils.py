@@ -383,7 +383,7 @@ def decrease_knot_multiplicity(occ_bs_surf, rtol=1e-2):
 
     return occ_bs_surf
 
-def remove_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
+def remove_surf_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
     """
     Check distance between B-Spline surface knots, remove one if 
     distance between two adjacent knots is smaller than a ratio of
@@ -474,7 +474,7 @@ def remove_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
 def reconstruct_BSpline_surface(occ_bs_surf, u_num_eval=30, v_num_eval=30, 
                                 bs_degree=3, bs_continuity=3, 
                                 tol3D=1e-3, geom_scale=1., 
-                                correct_knots=False, dist_ratio=0.5,
+                                remove_dense_knots=False, dist_ratio=0.5,
                                 rtol=1e-2):
     """
     Return reconstructed B-spline surface by evaluating the positions
@@ -499,23 +499,23 @@ def reconstruct_BSpline_surface(occ_bs_surf, u_num_eval=30, v_num_eval=30,
     u_num_eval_max = u_num_eval
     v_num_eval_max = v_num_eval
 
-    for num_iter in range(int(u_num_eval)):
-        occ_bs_res_pts = TColgp_Array2OfPnt(1, u_num_eval, 1, v_num_eval)
-        para_u = np.linspace(occ_bs_surf.Bounds()[0], occ_bs_surf.Bounds()[1], 
-                             u_num_eval)
-        para_v = np.linspace(occ_bs_surf.Bounds()[2], occ_bs_surf.Bounds()[3], 
-                             v_num_eval)
-        pt_temp = gp_Pnt()
-        for i in range(u_num_eval):
-            for j in range(v_num_eval):
-                occ_bs_surf.D0(para_u[i], para_v[j], pt_temp)
-                pt_temp0 = gp_Pnt(pt_temp.Coord()[0]*geom_scale, 
-                                  pt_temp.Coord()[1]*geom_scale, 
-                                  pt_temp.Coord()[2]*geom_scale)
-                occ_bs_res_pts.SetValue(i+1, j+1, pt_temp0)
-        occ_bs_res = GeomAPI_PointsToBSplineSurface(occ_bs_res_pts, 
-                        Approx_ParametrizationType(0), bs_degree, bs_degree, 
-                        bs_continuity, tol3D).Surface()
+    # for num_iter in range(int(u_num_eval)):
+    occ_bs_res_pts = TColgp_Array2OfPnt(1, u_num_eval, 1, v_num_eval)
+    para_u = np.linspace(occ_bs_surf.Bounds()[0], occ_bs_surf.Bounds()[1], 
+                         u_num_eval)
+    para_v = np.linspace(occ_bs_surf.Bounds()[2], occ_bs_surf.Bounds()[3], 
+                         v_num_eval)
+    pt_temp = gp_Pnt()
+    for i in range(u_num_eval):
+        for j in range(v_num_eval):
+            occ_bs_surf.D0(para_u[i], para_v[j], pt_temp)
+            pt_temp0 = gp_Pnt(pt_temp.Coord()[0]*geom_scale, 
+                              pt_temp.Coord()[1]*geom_scale, 
+                              pt_temp.Coord()[2]*geom_scale)
+            occ_bs_res_pts.SetValue(i+1, j+1, pt_temp0)
+    occ_bs_res = GeomAPI_PointsToBSplineSurface(occ_bs_res_pts, 
+                    Approx_ParametrizationType(0), bs_degree, bs_degree, 
+                    bs_continuity, tol3D).Surface()
 
         # Check element shape, reduce number of evaluations if needed
         # bs_res_data = BSplineSurfaceData(occ_bs_res)
@@ -574,8 +574,8 @@ def reconstruct_BSpline_surface(occ_bs_surf, u_num_eval=30, v_num_eval=30,
     # decrease_knot_multiplicity(occ_bs_res, rtol)
 
     # Remove densely distributed knots
-    if correct_knots:
-        remove_dense_knots(occ_bs_res, dist_ratio, rtol)
+    if remove_dense_knots:
+        remove_surf_dense_knots(occ_bs_res, dist_ratio, rtol)
 
     return occ_bs_res
 
