@@ -6,7 +6,6 @@ coupling with multiple spline patches.
 """
 
 from PENGoLINS.nonmatching_shell import *
-from PENGoLINS.occ_utils import *
 
 class NonMatchingCoupling(object):
     """
@@ -123,6 +122,20 @@ class NonMatchingCoupling(object):
 
         self.Vms_control = [FunctionSpace(mortar_mesh, family, degree) for 
                             mortar_mesh in self.mortar_meshes]
+
+        # self.Vms = []
+        # self.Vms_control = []
+        # # ind_count = 0
+        # for mortar_mesh in self.mortar_meshes:
+        #     # print("Intersection ind:", ind_count)
+        #     if self.num_field == 1:
+        #         self.Vms += [FunctionSpace(mortar_mesh, family, degree),]
+        #     else:
+        #         self.Vms += [VectorFunctionSpace(mortar_mesh, family, 
+        #                                          degree, dim=self.num_field),]
+        #     self.Vms_control += [FunctionSpace(mortar_mesh, family, degree),]
+        #     # ind_count += 1
+        
         self.mortar_funcs = [[Function(Vm), Function(Vm)] for Vm in self.Vms]
 
     def create_mortar_funcs_derivative(self, family, degree):

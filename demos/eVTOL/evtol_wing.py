@@ -7,6 +7,7 @@ and extracted using the command "tar -xvzf eVTOL.tgz".
 """
 
 from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.occ_utils import *
 from igakit.io import VTK
 
 SAVE_PATH = "./"
@@ -59,6 +60,7 @@ evtol_surfaces = [topoface2surface(face, BSpline=True)
 # Spars indices: [78, 92, 79]
 # Ribs indices: list(range(80, 92))
 wing_indices = list(range(12, 18)) + [78, 92, 79] + list(range(80, 92))
+# wing_indices = list(range(12, 18)) + [78]
 wing_surfaces = []
 for ind in wing_indices:
     wing_surfaces += [evtol_surfaces[ind],]
@@ -66,27 +68,34 @@ for ind in wing_indices:
 num_srfs = len(wing_surfaces)
 print("Number of surfaces:", num_srfs)
 
+
 num_pts_eval = [16]*num_srfs
-# Knots insertion for outer skin; spars; ribs
-u_insert_list = [16, 15, 14, 13, 1, 1] \
-              + [16, 17, 18] + [4]*12  
-v_insert_list = [8, 7, 6, 5, 12, 11] \
-              + [1]*3 + [1]*12
+
+u_insert_list = [16]*num_srfs
+v_insert_list = [16]*num_srfs
+
 ref_level = 1
 
 u_num_insert = [i*ref_level for i in u_insert_list]
 v_num_insert = [i*ref_level for i in v_insert_list]
 
 reconstructed_srfs = []
+# ikNURBS_srfs_init = []
 ikNURBS_srfs = []
+
+rtol = 1e-3
 for i in range(num_srfs):
     recon_bs_surface = reconstruct_BSpline_surface(wing_surfaces[i], 
-                       u_num_eval=num_pts_eval[i], v_num_eval=num_pts_eval[i], 
-                       tol3D=1e-3, geom_scale=geom_scale)
-    reconstructed_srfs += [recon_bs_surface]
-    ikNURBS_srfs += [BSpline_surface2ikNURBS(recon_bs_surface, p=p, 
-                      u_num_insert=u_num_insert[i], 
-                      v_num_insert=v_num_insert[i]),]
+                       u_num_eval=int(num_pts_eval[i]), 
+                       v_num_eval=int(num_pts_eval[i]),
+                       bs_degree=p, bs_continuity=p, 
+                       tol3D=rtol, geom_scale=geom_scale)
+
+    recon_bs_surface_refine = refine_BSpline_surface(recon_bs_surface, p, p,
+                              u_num_insert[i], v_num_insert[i], 
+                              correct_element_shape=True)
+    reconstructed_srfs += [recon_bs_surface_refine,]
+    ikNURBS_srfs += [BSpline_surface2ikNURBS(recon_bs_surface_refine)]
 
 # # Save igakit NURBS to vtk format
 # for i in range(num_srfs):

@@ -132,7 +132,8 @@ namespace
                              std::vector<double> &vec_temp_all, 
                              std::size_t i, 
                              std::size_t dim,
-                             unsigned int data_size)
+                             std::size_t data_size)
+                             // unsigned int data_size)
   {
     std::vector<double> vec1;
     for (unsigned int j = 0; j < vec_temp.size()/data_size; j++)
