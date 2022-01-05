@@ -31,7 +31,8 @@ def create_transfer_matrix_list(V1, V2, dV2=None):
     matrix_list : list of dolfin PETScMatrices
     """
     matrix_list = []
-    A12 = PETScDMCollection.create_transfer_matrix(V1,V2)
+    # A12 = PETScDMCollection.create_transfer_matrix(V1,V2)
+    A12 = create_transfer_matrix(V1,V2)
     matrix_list += [A12,]
 
     if dV2 is not None: 

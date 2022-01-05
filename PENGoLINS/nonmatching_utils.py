@@ -9,6 +9,7 @@ import os
 from math import *
 import numpy as np 
 
+from mpi4py import MPI as pyMPI
 from petsc4py import PETSc
 from tIGAr.common import *
 from tIGAr.BSplines import *
@@ -68,11 +69,6 @@ def arg2m(A):
     if isinstance(A, DOLFIN_PETSCMATRIX):
         A_PETSc = m2p(A)
     elif isinstance(A, DOLFIN_MATRIX):
-        # A_PETSc = zero_petsc_mat(A.size(0), A.size(1))
-        # A_PETSc.convert('dense')
-        # A_PETSc.setValues(range(A.size(0)), range(A.size(1)), A.array())
-        # A_PETSc.assemble()
-        # A_PETSc.convert('seqaij')
         A_PETSc = m2p(A)
     elif isinstance(A, PETSC4PY_MATRIX):
         A_PETSc = A
@@ -96,8 +92,16 @@ def A_x(A, x):
     """
     A_PETSc = arg2m(A)
     x_PETSc = arg2v(x)
-    b_PETSc = zero_petsc_vec(A_PETSc.size[0], comm=A_PETSc.getComm())
+
+    # b_PETSc = PETSc.Vec(comm)
+    # b_PETSc.create(comm=comm)
+    # b_PETSc.setSizes(A_PETSc.getSizes()[0])  # Contains local size
+    # b_PETSc.setUp()
+    # # b_PETSc.assemble()
+
+    b_PETSc = A_PETSc.createVecLeft()
     A_PETSc.mult(x_PETSc, b_PETSc)
+
     return b_PETSc
 
 def A_x_b(A, x, b):
@@ -130,8 +134,18 @@ def AT_x(A, x):
     """
     A_PETSc = arg2m(A)
     x_PETSc = arg2v(x)
-    b_PETSc = zero_petsc_vec(A_PETSc.size[1], comm=A_PETSc.getComm())
+
+    # b_PETSc = PETSc.Vec(A_PETSc.getComm())
+    # b_PETSc.create(A_PETSc.getComm())
+    # # # Raised error in parallel since local size is not passed
+    # # b_PETSc.setSizes(A_PETSc.getSizes()[1][1]) 
+    # b_PETSc.setSizes(A_PETSc.getSizes()[1])
+    # b_PETSc.setUp()
+    # # b_PETSc.assemble()
+
+    b_PETSc = A_PETSc.createVecRight()
     A_PETSc.multTranspose(x_PETSc, b_PETSc)
+
     return b_PETSc
 
 def AT_x_b(A, x, b):
@@ -146,10 +160,6 @@ def AT_x_b(A, x, b):
     b : dolfin Function, dolfin Vector, dolfin PETScVector
         or petsc4py.PETSc.Vec
     """
-    # A_PETSc = arg2m(A)
-    # x_PETSc = arg2v(x)
-    # b_PETSc = arg2v(b)
-    # A_PETSc.multTranspose(x_PETSc, b_PETSc)
     arg2m(A).multTranspose(arg2v(x), arg2v(b))
 
 def AT_R_B(A, R, B):
@@ -166,8 +176,6 @@ def AT_R_B(A, R, B):
     -------
     ATRB : petsc4py.PETSc.Mat
     """
-    # ATR = A.transposeMatMult(R)
-    # ATRB = ATR.matMult(B)
     ATRB = A.transposeMatMult(R).matMult(B)
     return ATRB
 
@@ -187,29 +195,24 @@ def apply_bcs_vec(spline, v):
     v_PETSc.assemblyBegin()
     v_PETSc.assemblyEnd()
 
-def apply_bcs_mat(spline1, A, spline2=None, diag=1):
+def apply_bcs_mat(spline, A, diag=1):
     """
-    Apply boundary conditions of ``spline1`` and ``spline2``(if given) 
-    to matrix ``A``.
+    Apply boundary conditions of ``spline`` to matrix ``A``.
 
     Parameters
     ----------
-    spline1 : ExtractedSpline
+    spline : ExtractedSpline
     A : dolfin Matrix, dolfin PETScMatrix, PETSc.Mat or None
-    spline2 : ExtractedSpline or None, optional
     diag : int, optional, default is 1
-        Values put in all diagonals of eliminated rows 
-        (0 will even eliminate diagonal entry)
+        Values put in all diagonals of eliminated rows.
+        1 is for diagonal blocks, 0 is for off-diagonal blocks.
     """
     A_PETSc = arg2m(A)
 
-    if spline2 is None:
-        A_PETSc.zeroRowsColumns(spline1.zeroDofs, diag=diag)
+    if diag == 0:
+        A_PETSc.zeroRows(spline.zeroDofs, diag=diag)
     else:
-        A_PETSc.zeroRows(spline1.zeroDofs, diag=diag)
-        A_PETSc.transpose()
-        A_PETSc.zeroRows(spline2.zeroDofs, diag=diag)
-        A_PETSc.transpose()
+        A_PETSc.zeroRowsColumns(spline.zeroDofs, diag=diag)
 
     A_PETSc.assemblyBegin()
     A_PETSc.assemblyEnd()
@@ -229,7 +232,6 @@ def IGA2FE(spline, u_IGA, applyBCs=False):
     -------
     u_FE : dolfin PETScVector
     """
-    # M_PETSc = m2p(spline.M)
     if applyBCs:
         apply_bcs_vec(spline, u_IGA)
     u_FE_PETSc = A_x(spline.M, u_IGA)
@@ -252,24 +254,21 @@ def FE2IGA(spline, u_FE, applyBCs=True):
     -------
     u_IGA : dolfin PETScVector
     """
-    # return multTranspose(spline.M, u_FE.vector())
-
-    # M_PETSc = m2p(spline.M)
     u_IGA_PETSc = AT_x(spline.M, u_FE)
     u_IGA = PETScVector(u_IGA_PETSc)
     if applyBCs:
         apply_bcs_vec(spline, u_IGA)
     return u_IGA
 
-def zero_petsc_vec(num_el, vec_type='seq', comm=worldcomm):
+def zero_petsc_vec(num_el, vec_type=None, comm=worldcomm):
     """
     Create zero PETSc vector of size ``num_el``.
 
     Parameters
     ----------
     num_el : int
-    vec_type : str, optional
-        For petsc4py.PETSc.Vec types, see petsc4py.PETSc.Vec.Type.
+    vec_type : str, optional, default is None
+        For available types, see petsc4py.PETSc.Vec.Type.
     comm : MPI communicator
 
     Returns
@@ -277,14 +276,15 @@ def zero_petsc_vec(num_el, vec_type='seq', comm=worldcomm):
     v : petsc4py.PETSc.Vec
     """
     v = PETSc.Vec(comm)
-    v.createSeq(num_el, comm=comm)
-    # v.setSizes(num_el)
-    # v.setType(vec_type)
+    v.create(comm=comm)
+    if vec_type is not None:
+        v.setType(vec_type)
+    v.setSizes(num_el)
     v.setUp()
     v.assemble()
     return v
 
-def zero_petsc_mat(row, col, mat_type='seqaij', 
+def zero_petsc_mat(row, col, mat_type=None, 
                    PREALLOC=500, comm=worldcomm):
     """
     Create zeros PETSc matrix with shape (``row``, ``col``).
@@ -293,8 +293,8 @@ def zero_petsc_mat(row, col, mat_type='seqaij',
     ----------
     row : int
     col : int
-    mat_type : str, optional
-        For petsc4py.PETSc.Mat types, see petsc4py.PETSc.Mat.Type
+    mat_type : str, optional, default is None
+        For available types, see petsc4py.PETSc.Mat.Type
     comm : MPI communicator
 
     Returns
@@ -302,9 +302,9 @@ def zero_petsc_mat(row, col, mat_type='seqaij',
     A : petsc4py.PETSc.Mat
     """
     A = PETSc.Mat(comm)
-    A.createAIJ([row, col], comm=comm)
-    # A.setSizes([row, col])
-    # A.setType(mat_type)
+    if mat_type is not None:
+        mat_type.setType(mat_type)
+    A.setSizes([row, col])
     A.setPreallocationNNZ([PREALLOC, PREALLOC])
     A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
     A.setUp()
@@ -389,7 +389,6 @@ def transfer_penalty_differentiation(R_list, A1_list, A2_list):
                 R[i] += AT_x(A_list[i][j], assemble(R_list[i][j]))
             else:
                 R[i] = AT_x(A_list[i][j], assemble(R_list[i][j]))
-
     return R
 
 def transfer_penalty_linearization(dR_du_list, A1_list, A2_list):
@@ -456,7 +455,6 @@ def dRdu2IGA(splines, dR_du):
     -------
     dRdu_IGA : list of petsc4py.PETSc.Mats, rank 2
     """
-    # dRdu_IGA = zero_list(len(dR_du),len(dR_du[0]))
     dRdu_IGA = [[None for i in range(len(dR_du[0]))] \
                       for j in range(len(dR_du))]
     for i in range(len(dR_du)):
@@ -520,13 +518,13 @@ def ksp_solver(ksp_type=PETSc.KSP.Type.CG, pc_type=PETSc.PC.Type.LU,
     """
     ksp = PETSc.KSP().create()
     ksp.setType(ksp_type)
-    ksp.getPC().setType(pc_type)
+    # ksp.getPC().setType(pc_type)
     ksp.setTolerances(rtol=rtol)
     ksp.setFromOptions()
     return ksp
 
 def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, 
-              pc_type=PETSc.PC.Type.LU, rtol=1e-15):
+              pc_type=PETSc.PC.Type.FIELDSPLIT, rtol=1e-15):
     """
     Solve "Ax=b" using PETSc Krylov solver.
 
@@ -540,10 +538,25 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG,
     """
     ksp = PETSc.KSP().create()
     ksp.setType(ksp_type)
-    ksp.getPC().setType(pc_type)
+
+    # # Setting preconditioner
+    # ksp.getPC().setType(pc_type)
+    # ksp.getPC().setType(PETSc.PC.Type.FIELDSPLIT)  # works in parallel
+    # ksp.getPC().setFieldSplitType(PETSc.PC.CompositeType.ADDITIVE) 
+
+    PETScOptions.set('pc_type', 'fieldsplit')
+    PETScOptions.set('pc_fieldsplit_type', 'additive')
+    # # PETScOptions.set('pc_fieldsplit_detect_saddle_point')
+
+    PETScOptions.set('fieldsplit_0_ksp_type', 'preonly')
+    PETScOptions.set('fieldsplit_0_pc_type', 'lu')
+
+    PETScOptions.set('fieldsplit_1_ksp_type', 'preonly')
+    PETScOptions.set('fieldsplit_1_pc_type', 'jacobi')
+    
     ksp.setTolerances(rtol=rtol)
-    ksp.setFromOptions()
     ksp.setOperators(A)
+    ksp.setFromOptions()
     ksp.solve(b, x)
 
 def solve_nested_mat(A, x, b, solver=None):
@@ -560,15 +573,15 @@ def solve_nested_mat(A, x, b, solver=None):
     """
     if not isinstance(A, PETSC4PY_MATRIX):
         raise TypeError("Type "+str(type(A))+" is not supported yet.")
-    if A.type != 'seqaij':
-        A.convert('seqaij')
     if solver is None:
+        # Only works in parallel
+        # PARALLEL NOTE: PETSc error code 56
+        if A.type != 'seqaij':
+            A.convert('seqaij')
         solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "mumps")
     elif solver == 'ksp':
+        # Works in parallel
         ksp_solve(A, x, b)
-    elif isinstance(solver, PETSc.KSP):
-        solver.setOperators(A)
-        solver.solve(b, x)
     else:
         solver.ksp().setOperators(A=A)
         solver.ksp().solve(b, x)
@@ -680,9 +693,10 @@ def generate_interpolated_data(data, num_pts):
     rows, cols = data.shape
 
     if rows > num_pts:
-        # print("Number of points to interpolate {} is smaller than the "
-        #       "number of given points {}, removing points from data to "
-        #       "match the number of points.".format(num_pts, rows))
+        if mpirank == 0:
+            print("Number of points to interpolate {} is smaller than the "
+                  "number of given points {}, removing points from data to "
+                  "match the number of points.".format(num_pts, rows))
         num_remove = rows - num_pts
         remove_ind = np.linspace(1, rows-2, num_remove, dtype=int)
         interp_data = np.delete(data, remove_ind, axis=0)
@@ -805,7 +819,7 @@ def generate_mortar_mesh(pts=None, num_el=None, data=None, comm=worldcomm):
         f.close()
         
     MPI.barrier(comm)    
-    mesh = Mesh(comm, MESH_FILE_NAME)
+    mesh = Mesh(MESH_FILE_NAME)
 
     if MPI.rank(comm) == 0:
         os.remove(MESH_FILE_NAME)
@@ -829,8 +843,13 @@ def deformed_position(spline, xi, u_hom):
     """
     position = np.zeros(3)
     for i in range(3):
-        position[i] = (spline.cpFuncs[i](xi)
-            +u_hom(xi)[i])/spline.cpFuncs[3](xi)
+        # # Direct evaluation doesn't work in parallel
+        # position[i] = (spline.cpFuncs[i](xi)
+        #     +u_hom(xi)[i])/spline.cpFuncs[3](xi)
+        cp_funcs_i = eval_func(spline.mesh, spline.cpFuncs[i], xi)
+        u_hom_i = eval_func(spline.mesh, u_hom[i], xi)
+        w = eval_func(spline.mesh, spline.cpFuncs[3], xi)
+        position[i] = (cp_funcs_i + u_hom_i)/w
     return position
 
 def undeformed_position(spline, xi):
@@ -849,7 +868,10 @@ def undeformed_position(spline, xi):
     """
     position = np.zeros(3)
     for i in range(3):
-        position[i] = spline.cpFuncs[i](xi)/spline.cpFuncs[3](xi)
+        # position[i] = spline.cpFuncs[i](xi)/spline.cpFuncs[3](xi)
+        cp_funcs_i = eval_func(spline.mesh, spline.cpFuncs[i], xi)
+        w = eval_func(spline.mesh, spline.cpFuncs[3], xi)
+        position[i] = cp_funcs_i/w
     return position
 
 def compute_line_Jacobian(X):
@@ -869,7 +891,7 @@ def compute_line_Jacobian(X):
     line_Jacobian = sqrt(tr(dXdxi*dXdxi.T))
     return line_Jacobian
 
-def move_mortar_mesh(mortar_mesh, mesh_location):
+def move_mortar_mesh(mortar_mesh, mesh_location):#, um=None):
     """
     Move the mortar mesh to a specified location.
 
@@ -878,19 +900,23 @@ def move_mortar_mesh(mortar_mesh, mesh_location):
     mortar_mesh : dolfin Mesh
     mesh_location : ndarray
     """
-    num_node = mortar_mesh.coordinates().shape[0]
+    Vm = VectorFunctionSpace(mortar_mesh, 'CG', 1)
+    um = Function(Vm)
+
+    num_node = int(um.vector().vec().getSizes()[1]\
+                   /mortar_mesh.geometric_dimension())
+
     if num_node == mesh_location.shape[0]:
         mesh_location_data = mesh_location
     else:
         mesh_location_data = generate_interpolated_data(mesh_location, 
                                                         num_node)
-    Vm = VectorFunctionSpace(mortar_mesh, 'CG', 1)
-    um = Function(Vm)
-    mortar_mesh_move = np.flip(mesh_location_data - \
-                               mortar_mesh.coordinates(), axis=0)
-    um_vec = mortar_mesh_move.reshape(mesh_location_data.size, 1)
-    um.vector().set_local(um_vec[:,0])
-    ALE.move(mortar_mesh, um)
+
+    mesh_location_flat = mesh_location_data[::-1].reshape(-1, 1)
+    v2p(um.vector()).setValues(np.arange(mesh_location_flat.size, 
+                                dtype='int32'), mesh_location_flat)
+    v2p(um.vector()).ghostUpdate()
+    set_coordinates(mortar_mesh.geometry(), um)
 
 def spline_mesh_phy_coordinates(spline, reshape=True):
     """
@@ -937,6 +963,54 @@ def spline_mesh_size(spline):
     dX_dxi = grad(spline.F)
     h = h_param*sqrt(tr(dX_dxi*dX_dxi.T))
     return h
+
+def point_in_mesh(mesh, xi):
+    """
+    Check if a point of location ``xi`` is inside mesh.
+
+    Parameters
+    ----------
+    mesh : dolfin mesh
+    xi : ndarray
+
+    Returns
+    -------
+    res : bool
+    """
+    return len(mesh.bounding_box_tree()\
+        .compute_entity_collisions(Point(xi)))>0
+
+def eval_func(mesh, f, xi, allreduce=True):
+    """
+    Evaluate function ``f`` at point ``xi``, where ``f`` has 
+    domain of ``mesh``. This function is used in parallel.
+
+    Parameters
+    ----------
+    mesh : dolfin mesh
+    f : dolfin Function
+    xi : ndarray
+    allreduce : bool, optional, default is True.
+    """
+    pt_in_mesh = point_in_mesh(mesh, xi)
+    pt_in_mesh_allgather = worldcomm.allgather(pt_in_mesh)
+
+    if pt_in_mesh:
+        res = f(xi)
+    else:
+        if len(f.ufl_shape) > 0:
+            res = f.ufl_shape[0]*[0.0,]
+        else:
+            res = 0.
+
+    if allreduce:
+        if pt_in_mesh_allgather.count(True) > 1:
+            mpi_op = pyMPI.MAX
+        else:
+            mpi_op = pyMPI.SUM
+        res = worldcomm.allreduce(res, op=mpi_op)
+    return res
+
 
 # import matplotlib.pyplot as plt 
 # from mpl_toolkits.mplot3d import Axes3D 

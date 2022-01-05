@@ -8,7 +8,8 @@ Newton's method.
 
 from PENGoLINS.nonmatching_utils import *
 
-def geometric_mapping_finite_difference(f, xi, u_lim, v_lim, 
+
+def geometric_mapping_finite_difference(mesh, f, xi, u_lim, v_lim, 
                                         EPS=1.0e-11, order=2):
     """
     Return the derivatives of function "f" on location "xi", using 
@@ -46,13 +47,21 @@ def geometric_mapping_finite_difference(f, xi, u_lim, v_lim,
                 if lims[j][0] <= xi_temp[j] <= lims[j][1]/2.:
                     xi_temp[j] += EPS
                     # Forward difference
-                    FD_result[i,j] = (f[i](xi_temp)-f[i](xi))/EPS
+                    # FD_result[i,j] = (f[i](xi_temp)-f[i](xi))/EPS
+                    fi_xi_temp = eval_func(mesh, f[i], xi_temp)
+                    fi_xi = eval_func(mesh, f[i], xi)
+                    FD_result[i,j] = (fi_xi_temp - fi_xi)/EPS
                 elif lims[j][1]/2. < xi_temp[j] <= lims[j][1]:
                     xi_temp[j] -= EPS
                     # Backward difference
-                    FD_result[i,j] = (f[i](xi)-f[i](xi_temp))/EPS
+                    # FD_result[i,j] = (f[i](xi)-f[i](xi_temp))/EPS
+                    fi_xi_temp = eval_func(mesh, f[i], xi_temp)
+                    fi_xi = eval_func(mesh, f[i], xi)
+                    FD_result[i,j] = (fi_xi - fi_xi_temp)/EPS
                 else:
-                    raise ValueError("The point is not inside the domain.")
+                    if mpirank == 0:
+                        raise ValueError("The point is not inside "
+                                         "the domain.")
     elif order == 2:
         # Second order accurate
         for i in range(num_rows):
@@ -62,26 +71,44 @@ def geometric_mapping_finite_difference(f, xi, u_lim, v_lim,
 
                 if xi[0] < lims[0][0] or xi[0] > lims[0][1] or \
                     xi[1] < lims[1][0] or xi[1] > lims[1][1]:
-                    raise ValueError("The point is not inside the domain.")
+                    if mpirank == 0:
+                        raise ValueError("The point is not inside "
+                                         "the domain.")
                 elif xi[j] < lims[j][0]+EPS:
-                    # forward second order accurate FD
+                    # Forward difference in second order accuracy
                     xi_temp0[j] += EPS
                     xi_temp1[j] += 2*EPS
-                    FD_result[i][j] = (-f[i](xi_temp1) + 4*f[i](xi_temp0) \
-                                    - 3*f[i](xi))/(2*EPS)
+                    # FD_result[i][j] = (-f[i](xi_temp1) + 4*f[i](xi_temp0) \
+                    #                 - 3*f[i](xi))/(2*EPS)
+                    fi_xi_temp0 = eval_func(mesh, f[i], xi_temp0)
+                    fi_xi_temp1 = eval_func(mesh, f[i], xi_temp1)
+                    fi_xi = eval_func(mesh, f[i], xi)
+                    FD_result[i][j] = (-fi_xi_temp1 + 4*fi_xi_temp0 \
+                                    - 3*fi_xi)/(2*EPS)
                 elif xi[j] > lims[j][1]-EPS:
-                    # backward second order accurate FD
+                    # Backward difference in second order accuracy
                     xi_temp0[j] -= EPS
                     xi_temp1[j] -= 2*EPS
-                    FD_result[i][j] = (f[i](xi_temp1) - 4*f[i](xi_temp0) \
-                                    + 3*f[i](xi))/(2*EPS)
+                    # FD_result[i][j] = (f[i](xi_temp1) - 4*f[i](xi_temp0) \
+                    #                 + 3*f[i](xi))/(2*EPS)
+                    fi_xi_temp0 = eval_func(mesh, f[i], xi_temp0)
+                    fi_xi_temp1 = eval_func(mesh, f[i], xi_temp1)
+                    fi_xi = eval_func(mesh, f[i], xi)
+                    FD_result[i][j] = (fi_xi_temp1 - 4*fi_xi_temp0 \
+                                    + 3*fi_xi)/(2*EPS)
                 else:
-                    # central difference
+                    # Central difference
                     xi_temp0[j] -= EPS
                     xi_temp1[j] += EPS
-                    FD_result[i][j] = (f[i](xi_temp1)-f[i](xi_temp0))/(2*EPS)
+                    fi_xi_temp0 = eval_func(mesh, f[i], xi_temp0)
+                    fi_xi_temp1 = eval_func(mesh, f[i], xi_temp1)
+                    # FD_result[i][j] = (f[i](xi_temp1) - f[i](xi_temp0))\
+                    #                   /(2*EPS)
+                    FD_result[i][j] = (fi_xi_temp1 - fi_xi_temp0)/(2*EPS)
+
     else:
-        raise ValueError("{}-th order accuracy is not supported yet.")
+        if mpirank == 0:
+            raise ValueError("{}-th order accuracy is not supported yet.")
     return FD_result
 
 def point_physical_location(spline, xi):
@@ -99,7 +126,8 @@ def point_physical_location(spline, xi):
     """
     phy_loc = np.zeros(spline.nsd)
     for i in range(spline.nsd):
-        phy_loc[i] = spline.F[i](xi)
+        # phy_loc[i] = spline.F[i](xi)
+        phy_loc[i] = eval_func(spline.mesh, spline.F[i], xi)
     return phy_loc
 
 def solve_nonsquare(A,b, perturbation=1e-12):
@@ -120,8 +148,10 @@ def solve_nonsquare(A,b, perturbation=1e-12):
     ATb = np.dot(A.T, b)
     detATA = np.linalg.det(ATA)
     if abs(detATA) < 1e-16:
-        print("Matrix near sigular, adding perturbation to diagonal entries.")
-        print("Determint of the Matrix: {:10.6e}".format(detATA))
+        if mpirank == 0:
+            print("Matrix near sigular, adding perturbation to "
+                  "diagonal entries.")
+            print("Determint of the Matrix: {:10.6e}".format(detATA))
         ATA = ATA + np.eye(ATA.shape[0])*perturbation
     return np.linalg.solve(ATA, ATb)
 
@@ -260,49 +290,60 @@ def point_parametric_location(spline, X, u_lim=[0.,1.], v_lim=[0.,1.],
         if i >= max_iter:
             if increase_rtol:
                 if rtol <= max_rtol:
-                    print("The value of residual: {:10.8f}.".format(res_norm))
-                    print("The maximum number of iterations {} has been "
-                          "exceeded with tolerance {}.".format(max_iter, 
-                          rtol))
+                    if mpirank == 0:
+                        print("The value of residual: {:10.8f}."
+                              .format(res_norm))
+                        print("The maximum number of iterations {} has been "
+                              "exceeded with tolerance {}.".format(max_iter, 
+                              rtol))
                     i = 0
                     rtol = rtol*ceil(res_norm/rtol)
                     if rtol > max_rtol:
-                        raise StopIteration("The maximum tolerance {} "
-                        "cannot be reached.".format(max_rtol))
-                    print("Now using larger tolerance {}.".format(rtol))
+                        if mpirank == 0:
+                            raise StopIteration("The maximum tolerance {} "
+                            "cannot be reached.".format(max_rtol))
+                    if mpirank == 0:
+                        print("Now using larger tolerance {}.".format(rtol))
                 else:
-                    print("The value of the residual: {:10.8f}.".fotmat(
-                          res_norm))
-                    raise StopIteration("The maximum tolerance {} cannot "
-                        "be reached.".format(max_rtol))
+                    if mpirank == 0:
+                        print("The value of the residual: {:10.8f}."
+                              .fotmat(res_norm))
+                        raise StopIteration("The maximum tolerance {} "
+                              "cannot be reached.".format(max_rtol))
             else:
-                print("The value of residual: {:10.8f}.".format(res_norm))
-                raise StopIteration("Maximum number of iterations {} has "
-                    "been exceeded with tolerance {}.".format(max_iter, rtol))
+                if mpirank == 0:
+                    print("The value of residual: {:10.8f}."
+                          .format(res_norm))
+                    raise StopIteration("Maximum number of iterations "
+                          "{} has been exceeded with tolerance {}."
+                          .format(max_iter, rtol))
 
-        Dphy_loc = geometric_mapping_finite_difference(spline.F, xi, 
-                                                       u_lim, v_lim)
+        Dphy_loc = geometric_mapping_finite_difference(spline.mesh, spline.F, 
+                                                       xi, u_lim, v_lim)
         dxi = solve_nonsquare(Dphy_loc, -res)
         xi = xi+dxi
         check_parametric_location(xi, u_lim, v_lim)
 
         if print_res:
-            print("Iteration: {}, residual norm: {}.".format(i, res_norm))
-            print("\tParametric location:", xi)
+            if mpirank == 0:
+                print("Iteration: {}, residual norm: {}."
+                      .format(i, res_norm))
+                print("\tParametric location:", xi)
 
         i += 1
         res_norm_old = res_norm
 
     if print_res:
-        print("Final residual norm:", res_norm)
+        if mpirank == 0:
+            print("Final residual norm:", res_norm)
 
     return xi
 
 def interface_parametric_location(spline, mortar_mesh, physical_location, 
                                   u_lim=[0.,1.], v_lim=[0.,1.], max_iter=20, 
-                                  rtol=1e-9, increase_rtol=True, max_rtol=1e-1, 
-                                  print_res=False, interp_phy_loc=True, 
-                                  r=0.8, edge_tol=1e-4):
+                                  rtol=1e-9, increase_rtol=True, 
+                                  max_rtol=1e-1, print_res=False, 
+                                  interp_phy_loc=True, r=0.8, edge_tol=1e-4):
     """
     Compute the parametric locations of the points of the non-matching 
     interface based on their physical locations and geometric mapping 
@@ -345,7 +386,7 @@ def interface_parametric_location(spline, mortar_mesh, physical_location,
     -------
     parametric_location_data : ndarray
     """
-    num_pts = int(mortar_mesh.coordinates().shape[0])
+    num_pts = int(mortar_mesh.num_entities_global(0))
 
     if interp_phy_loc:
         # Interpolate physical locations and compute all 
@@ -356,7 +397,8 @@ def interface_parametric_location(spline, mortar_mesh, physical_location,
                                              geometric_dimension()))
         for i in range(num_pts):
             if print_res:
-                print("Physical location point index:", i)
+                if mpirank == 0:
+                    print("Physical location point index:", i)
             parametric_location_data[i] = point_parametric_location(spline, 
                                           physical_location_data[i], 
                                           u_lim=u_lim, v_lim=v_lim, 
@@ -370,7 +412,8 @@ def interface_parametric_location(spline, mortar_mesh, physical_location,
                                         spline.mesh.geometric_dimension()))
         for i in range(physical_location.shape[0]):
             if print_res:
-                print("Physical location point index:", i)
+                if mpirank == 0:
+                    print("Physical location point index:", i)
             parametric_location[i] = point_parametric_location(spline, 
                                      physical_location[i], u_lim=u_lim, 
                                      v_lim=v_lim, max_iter=max_iter, 
@@ -405,7 +448,9 @@ def interface_physical_location(spline, parametric_location):
         for j in range(spline.nsd):
             # physical_location[i,j] = spline.cpFuncs[j](xi_temp)\
             #                         /spline.cpFuncs[-1](xi_temp)
-            physical_location[i,j] = spline.F[j](parametric_location[i,:])
+            # physical_location[i,j] = spline.F[j](parametric_location[i,:])
+            physical_location[i,j] = eval_func(spline.mesh, spline.F[j], 
+                                               parametric_location[i,:])
     return physical_location
 
 if __name__ == "__main__":

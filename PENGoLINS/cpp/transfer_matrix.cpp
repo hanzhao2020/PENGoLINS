@@ -29,6 +29,8 @@
 #include <petscmat.h>
 #include "transfer_matrix.h"
 
+# include <cmath>
+
 using namespace dolfin;
 
 namespace
@@ -130,17 +132,16 @@ namespace
 
   void get_derivative_values(std::vector<double> &vec_temp, 
                              std::vector<double> &vec_temp_all, 
-                             std::size_t i, 
+                             std::size_t partial_dir, 
                              std::size_t dim,
                              std::size_t data_size)
-                             // unsigned int data_size)
   {
     std::vector<double> vec1;
     for (unsigned int j = 0; j < vec_temp.size()/data_size; j++)
     {
       for (unsigned int k = 0; k < data_size; k++)
       {
-        vec1.push_back(vec_temp_all[i + j*dim*data_size + k*dim]);
+        vec1.push_back(vec_temp_all[partial_dir + j*dim*data_size + k*dim]);
       }
     }
 
@@ -492,6 +493,7 @@ std::shared_ptr<PETScMatrix> PETScDMCollectionTemp::create_transfer_matrix
   std::vector<std::vector<dolfin::la_index>> col_indices(m_owned, std::vector<dolfin::la_index>(eldim));
   std::vector<std::vector<double>> values(m_owned, std::vector<double>(eldim));
   std::vector<double> temp_values(eldim*data_size);
+  // std::vector<double> temp_values_total(eldim*data_size*dim);
 
   // Initialise global sparsity pattern: record on-process and
   // off-process dependencies of fine dofs
@@ -555,6 +557,11 @@ std::shared_ptr<PETScMatrix> PETScDMCollectionTemp::create_transfer_matrix
       }
     }
   }
+
+  // std::cout << "Rank:" << MPI::rank(mpi_comm) << ", find_ids size: " << found_ids.size() << "\n"; 
+  // std::cout << "Rank:" << MPI::rank(mpi_comm) << ", data size: " << data_size << "\n";  
+  // std::cout << "Rank:" << MPI::rank(mpi_comm) << ", eldim: " << eldim << "\n"; 
+  // std::cout << "Rank:" << MPI::rank(mpi_comm) << ", dim: " << dim << "\n";  
 
   // Communicate off-process columns nnz, and flatten to get nnz per
   // row we also keep track of the ownership range
@@ -935,14 +942,15 @@ std::shared_ptr<PETScMatrix> PETScDMCollectionTemp::create_transfer_matrix_parti
     coarse_cell.get_cell_data(ufc_cell);
     // Evaluate the basis functions of the coarse cells at the fine
     // point and store the values into temp_values_derivative_total
-    unsigned int n = 1;
-    el->evaluate_basis_derivatives_all(n, temp_values_derivative_total.data(),
-                           curr_point.coordinates(),
-                           coordinate_dofs.data(),
-                           ufc_cell.orientation);
+    unsigned int deriv_order = 1;
+    el->evaluate_basis_derivatives_all(deriv_order, 
+                                       temp_values_derivative_total.data(),
+                                       curr_point.coordinates(),
+                                       coordinate_dofs.data(),
+                                       ufc_cell.orientation);
 
     get_derivative_values(temp_values_derivative, temp_values_derivative_total,
-                                partial_dir, dim, data_size);
+                          partial_dir, dim, data_size);
 
     // Get the coarse dofs associated with this cell
     auto temp_dofs = coarsemap->cell_dofs(id);

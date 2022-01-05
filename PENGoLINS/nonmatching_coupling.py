@@ -31,14 +31,11 @@ class NonMatchingCoupling(object):
         contact : ShNAPr.contact.ShellContactContext, optional
         int_measure_metadata : dict, optional
             Metadata information for integration measure of 
-            intersection curves.
-        comm : mpi4py.MPI.Intarcomm, optional
+            intersection curves. Default is vertex quadrature
+            with degree 0.
+        comm : mpi4py.MPI.Intracomm, optional
         """
-        if not isinstance(comm, type(worldcomm)):
-            self.comm = worldcomm
-        else:
-            self.comm = comm
-
+        self.comm = comm
         self.splines = splines
         self.num_splines = len(splines)
         self.num_field = num_field
@@ -47,24 +44,27 @@ class NonMatchingCoupling(object):
         if isinstance(E, list):
             self.E = E  # Young's modulus
             if len(self.E) != self.num_splines:
-                raise AssertionError("Length of Young's modulus list "
-                    "doesn't match with the number of splines.")
+                if mpirank == 0:
+                    raise AssertionError("Length of Young's modulus list "
+                        "doesn't match with the number of splines.")
         else:
             self.E = [E for i in range(self.num_splines)]
 
         if isinstance(h_th, list):
-            self.h_th = h_th  # Thickness of the splines
+            self.h_th = h_th  # Thickness of the spline surfaces
             if len(self.h_th) != self.num_splines:
-                raise AssertionError("Length of shell thickness list "
-                    "doesn't match with the number of splines.")
+                if mpirank == 0:
+                    raise AssertionError("Length of shell thickness list "
+                        "doesn't match with the number of splines.")
         else:
             self.h_th = [h_th for i in range(self.num_splines)]
 
         if isinstance(nu, list):
             self.nu = nu  # Poisson's ratio
             if len(self.nu) != self.num_splines:
-                raise AssertionError("Length of Poisson's ratio list "
-                    "doesn't match with the number of splines.")
+                if mpirank == 0:
+                    raise AssertionError("Length of Poisson's ratio list "
+                        "doesn't match with the number of splines.")
         else:
             self.nu = [nu for i in range(self.num_splines)]
 
@@ -91,9 +91,10 @@ class NonMatchingCoupling(object):
         ----------
         mortar_nels : list of ints
             Contains number of elements for all mortar meshes.
-        "mortar_coords" : list of ndarrays
-            Contains points of location for all mortar meshes. 
-            Default is None.
+        mortar_coords : list of ndarrays, optional
+            Contains points of location for all mortar meshes.
+            Default is None, corresponds to coordinate 
+            [[0,0],[0,1]].
         """
         self.num_interfaces = len(mortar_nels)
         if mortar_coords is None:
@@ -113,30 +114,27 @@ class NonMatchingCoupling(object):
         family : str, specification of the element family.
         degree : int
         """
+        # Function space for dolfin functions of mortar meshes
         if self.num_field == 1:
             self.Vms = [FunctionSpace(mortar_mesh, family, degree) for 
                         mortar_mesh in self.mortar_meshes]
         else:
             self.Vms = [VectorFunctionSpace(mortar_mesh, family, degree, 
-                dim=self.num_field) for mortar_mesh in self.mortar_meshes]
+                        dim=self.num_field) for mortar_mesh in \
+                        self.mortar_meshes]
 
+        # # Function space for coordinates of mortar meshes
+        # self.Vms_move = [VectorFunctionSpace(mortar_mesh, 'CG', 1) 
+        #                  for mortar_mesh in self.mortar_meshes]
+
+        # Function space for control points information of mortar meshes
         self.Vms_control = [FunctionSpace(mortar_mesh, family, degree) for 
                             mortar_mesh in self.mortar_meshes]
-
-        # self.Vms = []
-        # self.Vms_control = []
-        # # ind_count = 0
-        # for mortar_mesh in self.mortar_meshes:
-        #     # print("Intersection ind:", ind_count)
-        #     if self.num_field == 1:
-        #         self.Vms += [FunctionSpace(mortar_mesh, family, degree),]
-        #     else:
-        #         self.Vms += [VectorFunctionSpace(mortar_mesh, family, 
-        #                                          degree, dim=self.num_field),]
-        #     self.Vms_control += [FunctionSpace(mortar_mesh, family, degree),]
-        #     # ind_count += 1
-        
+        # Mortar meshes' functionss
         self.mortar_funcs = [[Function(Vm), Function(Vm)] for Vm in self.Vms]
+
+        # # Mortar meshes' coordinates in parametric space
+        # self.um_coord = [Function(V) for V in self.Vms_move]
 
     def create_mortar_funcs_derivative(self, family, degree):
         """
@@ -172,7 +170,7 @@ class NonMatchingCoupling(object):
     def __create_mortar_vars(self):
         """
         Rearrange the order of functions and their derivatives 
-        of mortar meshes.
+        of mortar meshes. For internal use.
         """
         self.mortar_vars = []
         for i in range(self.num_interfaces):
@@ -208,6 +206,7 @@ class NonMatchingCoupling(object):
             transfer_matrices_control = [[], []]
             transfer_matrices_linear = [[], []]
             for j in range(len(self.mapping_list[i])):
+
                 move_mortar_mesh(self.mortar_meshes[i], 
                                  mortar_parametric_coords[i][j])
                 # Create transfer matrices
@@ -221,31 +220,29 @@ class NonMatchingCoupling(object):
                     self.splines[self.mapping_list[i][j]].V_linear,
                     self.Vms_control[i])
 
+            # Store transfers in lists for future use
             self.transfer_matrices_list += [transfer_matrices,]
             self.transfer_matrices_control_list += [transfer_matrices_control]
             self.transfer_matrices_linear_list += [transfer_matrices_linear,]
 
             s_ind0, s_ind1 = mapping_list[i]
-
             # Compute element length
             h0 = spline_mesh_size(self.splines[s_ind0])
-            # h0_func = project(h0, self.splines[s_ind0].V_linear)
             h0_func = self.splines[s_ind0]\
                 .projectScalarOntoLinears(h0, lumpMass=True)
-            h0m = A_x(transfer_matrices_linear[0], h0_func)
-
+            h0m = Function(self.Vms_control[i])
+            A_x_b(transfer_matrices_linear[0], h0_func.vector(), h0m.vector())
             h1 = spline_mesh_size(self.splines[s_ind1])
-            # h1_func = project(h1, self.splines[s_ind1].V_linear)
             h1_func = self.splines[s_ind1]\
                 .projectScalarOntoLinears(h1, lumpMass=True)
-            h1m = A_x(transfer_matrices_linear[1], h1_func)
-            h_avg = 0.5*(h0m+h1m)
-            hm_avg = Function(self.Vms_control[i])
-            hm_avg.vector().set_local(h_avg.getArray()[::-1])
+            h1m = Function(self.Vms_control[i])
+            A_x_b(transfer_matrices_linear[1], h1_func.vector(), h1m.vector())
+            hm_avg = 0.5*(h0m+h1m)
             self.hm_avg_list += [hm_avg,]
 
             # Use "Minimum" method for spline patches with different
-            # material properties.
+            # material properties. 
+            # For other methods, see Herrema et al. Section 4.2
             # For uniform isotropic material:
             max_Aij0 = float(self.E[s_ind0]*self.h_th[s_ind0]\
                        /(1-self.nu[s_ind0]**2))
@@ -284,11 +281,13 @@ class NonMatchingCoupling(object):
         self.deriv_residuals = [Form(Dres) for Dres in deriv_residuals]
 
         if point_sources is None and point_source_inds is not None:
-            raise RuntimeError("``point_sources`` has to be given ", 
-                                "if ``point_source_inds`` is given.")
+            if mpirank == 0:
+                raise RuntimeError("``point_sources`` has to be given ", 
+                                    "if ``point_source_inds`` is given.")
         elif point_sources is not None and point_source_inds is None:
-            raise RuntimeError("``point_source_inds`` has to be given ", 
-                                "if ``point_sources`` is given.")
+            if mpirank == 0:
+                raise RuntimeError("``point_source_inds`` has to be given ", 
+                                    "if ``point_sources`` is given.")
         self.point_sources = point_sources
         self.point_source_inds = point_source_inds
 
@@ -299,10 +298,14 @@ class NonMatchingCoupling(object):
         # Step 1: assemble residuals of ExtractedSplines 
         # and derivatives.
         if self.residuals is None:
-            raise RuntimeError("Shell residuals are not specified.") 
+            if mpirank == 0:
+                raise RuntimeError("Shell residuals are not specified.") 
         if self.deriv_residuals is None:
-            raise RuntimeError("Derivatives of shell residuals are"
-                               " not specified.") 
+            if mpirank == 0:
+                raise RuntimeError("Derivatives of shell residuals are "
+                                   "not specified.")
+
+        # Compute contributions from shell residuals and derivatives
         R_FE = []
         dR_du_FE = []
         for i in range(self.num_splines):
@@ -316,10 +319,13 @@ class NonMatchingCoupling(object):
             dR_du_FE += [m2p(dR_du_assemble),]
 
         # Step 2: assemble non-matching contributions
+        # Create empty lists for non-matching contributions
         Rm_FE = [None for i1 in range(self.num_splines)]
         dRm_dum_FE = [[None for i1 in range(self.num_splines)] 
                       for i2 in range(self.num_splines)]
 
+        # Compute non-matching contributions ``Rm_FE`` and 
+        # ``dRm_dum_FE``.
         for i in range(self.num_interfaces):
             dx_m = dx(domain=self.mortar_meshes[i], 
                       metadata=self.int_measure_metadata)
@@ -331,6 +337,7 @@ class NonMatchingCoupling(object):
                 self.alpha_d_list[i], self.alpha_r_list[i], 
                 self.mortar_vars[i][0], self.mortar_vars[i][1], 
                 dx_m=dx_m)
+
             Rm_list = penalty_differentiation(self.PE, 
                 self.mortar_vars[i][0], self.mortar_vars[i][1])
             Rm = transfer_penalty_differentiation(Rm_list, 
@@ -341,11 +348,13 @@ class NonMatchingCoupling(object):
             dRm_dum = transfer_penalty_linearization(dRm_dum_list, 
                 self.transfer_matrices_list[i][0], 
                 self.transfer_matrices_list[i][1])
+
             for j in range(len(dRm_dum)):
                 if Rm_FE[self.mapping_list[i][j]] is not None:
                     Rm_FE[self.mapping_list[i][j]] += Rm[j]
                 else:
                     Rm_FE[self.mapping_list[i][j]] = Rm[j]
+
                 for k in range(len(dRm_dum[j])):
                     if dRm_dum_FE[self.mapping_list[i][j]]\
                        [self.mapping_list[i][k]] is not None:
@@ -363,6 +372,9 @@ class NonMatchingCoupling(object):
             else:
                 Rm_FE[i] = R_FE[i]
                 dRm_dum_FE[i][i] = dR_du_FE[i]
+
+        self.Rm_FE = Rm_FE
+        self.R_FE = R_FE
 
         # Step 4: add contact contributions if contact is given
         if self.contact is not None:
@@ -402,24 +414,31 @@ class NonMatchingCoupling(object):
         dRt_dut_IGA = []
         for i in range(self.num_splines):
             Rt_IGA += [v2p(FE2IGA(self.splines[i], Rt_FE[i])),]
+            # Rt_IGA += [AT_x(self.splines[i].M, Rt_FE[i]),]
             dRt_dut_IGA += [[],]
             for j in range(self.num_splines):
                 if dRt_dut_FE[i][j] is not None:
                     dRm_dum_IGA_temp = AT_R_B(m2p(self.splines[i].M), 
                                   dRt_dut_FE[i][j], m2p(self.splines[j].M))
+
                     if i==j:
-                        diag = 1
+                        apply_bcs_mat(self.splines[i], dRm_dum_IGA_temp, 
+                                      diag=1)
                     else:
-                        diag = 0
-                    apply_bcs_mat(self.splines[i], dRm_dum_IGA_temp, 
-                                  self.splines[j], diag=diag)
+                        apply_bcs_mat(self.splines[i], dRm_dum_IGA_temp, 
+                                      diag=0)
                 else:
                     dRm_dum_IGA_temp = None
+
                 dRt_dut_IGA[i] += [dRm_dum_IGA_temp,]
 
-        b = create_nested_PETScVec(Rt_IGA, comm=self.comm)
-        A = create_nested_PETScMat(dRt_dut_IGA, comm=self.comm)
-        return A, b
+        self.b = create_nested_PETScVec(Rt_IGA, comm=self.comm)
+        self.A = create_nested_PETScMat(dRt_dut_IGA, comm=self.comm)
+
+        # self.A_list = dRt_dut_IGA
+        # self.b_list = Rt_IGA
+
+        return self.A, self.b
 
     def solve_linear_nonmatching_problem(self, solver=None):
         """
@@ -441,13 +460,13 @@ class NonMatchingCoupling(object):
             u_list += [zero_petsc_vec(self.splines[i].M.size(1), 
                                       comm=self.splines[i].comm),]
         u = create_nested_PETScVec(u_list, comm=self.comm)
-
         solve_nested_mat(A, u, -b, solver=solver)
         
         for i in range(self.num_splines):
-            v2p(self.spline_funcs[i].vector()).ghostUpdate()
             self.splines[i].M.mat().mult(u_list[i], 
                                          self.spline_funcs[i].vector().vec())
+            v2p(self.spline_funcs[i].vector()).ghostUpdate()
+            v2p(self.spline_funcs[i].vector()).assemble()
         return self.spline_funcs
 
     def solve_nonlinear_nonmatching_problem(self, solver=None, ref_error=None,
@@ -488,20 +507,23 @@ class NonMatchingCoupling(object):
             rel_norm = current_norm/ref_error
             if newton_iter >= 0:
                 if MPI.rank(self.comm) == 0:
-                    print("Solver iteration: {}, relative norm: {:.12}."\
-                        .format(newton_iter, rel_norm))
+                    if mpirank == 0:
+                        print("Solver iteration: {}, relative norm: {:.12}."
+                            .format(newton_iter, rel_norm))
                 sys.stdout.flush()
 
             if rel_norm < rel_tol:
                 if MPI.rank(self.comm) == 0:
-                    print("Newton's iteration finished in {} iterations "
-                        "(relative tolerance: {}).".format(newton_iter, 
-                                                           rel_tol))
+                    if mpirank == 0:
+                        print("Newton's iteration finished in {} "
+                              "iterations (relative tolerance: {})."
+                              .format(newton_iter, rel_tol))
                 break
 
             if newton_iter == max_iter:
-                raise StopIteration("Nonlinear solver failed to converge "
-                    "in {} iterations.".format(max_iter))
+                if mpirank == 0:
+                    raise StopIteration("Nonlinear solver failed to "
+                          "converge in {} iterations.".format(max_iter))
 
             du_list = []
             du_IGA_list = []
@@ -514,10 +536,10 @@ class NonMatchingCoupling(object):
             solve_nested_mat(A, du, -b, solver=solver)
 
             for i in range(self.num_splines):
-                v2p(du_list[i].vector()).ghostUpdate()
                 self.splines[i].M.mat().mult(du_IGA_list[i], 
                                              du_list[i].vector().vec())
                 self.spline_funcs[i].assign(self.spline_funcs[i]+du_list[i])
+                v2p(du_list[i].vector()).ghostUpdate()
 
             for i in range(len(self.transfer_matrices_list)):
                 for j in range(len(self.transfer_matrices_list[i])):
