@@ -123,18 +123,11 @@ class NonMatchingCoupling(object):
                         dim=self.num_field) for mortar_mesh in \
                         self.mortar_meshes]
 
-        # # Function space for coordinates of mortar meshes
-        # self.Vms_move = [VectorFunctionSpace(mortar_mesh, 'CG', 1) 
-        #                  for mortar_mesh in self.mortar_meshes]
-
         # Function space for control points information of mortar meshes
         self.Vms_control = [FunctionSpace(mortar_mesh, family, degree) for 
                             mortar_mesh in self.mortar_meshes]
-        # Mortar meshes' functionss
+        # Mortar meshes' functions
         self.mortar_funcs = [[Function(Vm), Function(Vm)] for Vm in self.Vms]
-
-        # # Mortar meshes' coordinates in parametric space
-        # self.um_coord = [Function(V) for V in self.Vms_move]
 
     def create_mortar_funcs_derivative(self, family, degree):
         """
@@ -181,7 +174,7 @@ class NonMatchingCoupling(object):
                     self.mortar_vars[i][j] += [self.mortar_funcs_dxi[k][i][j]]
 
     def mortar_meshes_setup(self, mapping_list, mortar_parametric_coords, 
-                            penalty_coefficient=1e3):
+                            penalty_coefficient=1000):
         """
         Set up coupling of non-matching system for mortar meshes.
 
@@ -189,7 +182,7 @@ class NonMatchingCoupling(object):
         ----------
         mapping_list : list of ints
         mortar_parametric_coords : list of ndarrays
-        penalty_coefficient : float, optional, default is 1e3
+        penalty_coefficient : float, optional, default is 1000
         """
         self.__create_mortar_vars()
         self.mapping_list = mapping_list
@@ -318,6 +311,9 @@ class NonMatchingCoupling(object):
             R_FE += [v2p(R_assemble),]
             dR_du_FE += [m2p(dR_du_assemble),]
 
+        # self.dR_du_FE = dR_du_FE
+        # self.R_FE = R_FE
+
         # Step 2: assemble non-matching contributions
         # Create empty lists for non-matching contributions
         Rm_FE = [None for i1 in range(self.num_splines)]
@@ -329,7 +325,7 @@ class NonMatchingCoupling(object):
         for i in range(self.num_interfaces):
             dx_m = dx(domain=self.mortar_meshes[i], 
                       metadata=self.int_measure_metadata)
-            self.PE = penalty_energy(self.splines[self.mapping_list[i][0]], 
+            PE = penalty_energy(self.splines[self.mapping_list[i][0]], 
                 self.splines[self.mapping_list[i][1]], self.mortar_meshes[i],
                 self.Vms_control[i], self.dVms_control[i], 
                 self.transfer_matrices_control_list[i][0], 
@@ -338,7 +334,16 @@ class NonMatchingCoupling(object):
                 self.mortar_vars[i][0], self.mortar_vars[i][1], 
                 dx_m=dx_m)
 
-            Rm_list = penalty_differentiation(self.PE, 
+            # An initial check for penalty energy, if ``PE``is nan,
+            # raise RuntimeError.
+            PE_value = assemble(PE)
+            if PE_value is nan:
+                if mpirank == 0:
+                    raise RuntimeError("Penalty energy value is nan between "
+                          "splines {:2d} and {:2d}.".format(
+                          self.mapping_list[i][0], self.mapping_list[i][1]))
+
+            Rm_list = penalty_differentiation(PE, 
                 self.mortar_vars[i][0], self.mortar_vars[i][1])
             Rm = transfer_penalty_differentiation(Rm_list, 
                 self.transfer_matrices_list[i][0], 
@@ -364,7 +369,10 @@ class NonMatchingCoupling(object):
                         dRm_dum_FE[self.mapping_list[i][j]]\
                             [self.mapping_list[i][k]] = dRm_dum[j][k]
 
-        # Step 3: add spline residuls and non-matching contribution together
+        # self.dRm_dum_FE = dRm_dum_FE
+        # self.Rm_FE = Rm_FE
+
+        # Step 3: add spline residuals and non-matching contribution together
         for i in range(self.num_splines):
             if Rm_FE[i] is not None:
                 Rm_FE[i] += R_FE[i]
@@ -372,9 +380,6 @@ class NonMatchingCoupling(object):
             else:
                 Rm_FE[i] = R_FE[i]
                 dRm_dum_FE[i][i] = dR_du_FE[i]
-
-        self.Rm_FE = Rm_FE
-        self.R_FE = R_FE
 
         # Step 4: add contact contributions if contact is given
         if self.contact is not None:
@@ -553,12 +558,12 @@ class NonMatchingCoupling(object):
 
 class NonMatchingNonlinearProblem(NonlinearProblem):
     """
-    A customed subclass of dolfin ``NonlinearProlem`` to make use of 
+    A customized subclass of dolfin ``NonlinearProlem`` to make use of 
     ``PETScSNESSolver``.
     """
     def __init__(self, problem, **kwargs):
         """
-        Initilization of ``NonMatchingNonlinearProblem``.
+        Initialization of ``NonMatchingNonlinearProblem``.
 
         Parameters
         ----------
@@ -623,7 +628,7 @@ class NonMatchingNonlinearSolver:
     """
     def __init__(self, nonlinear_problem, solver):
         """
-        Initilization of ``NonMatchingNonlinearSolver``.
+        Initialization of ``NonMatchingNonlinearSolver``.
 
         Parameters
         ----------

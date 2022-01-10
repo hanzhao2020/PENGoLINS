@@ -4,7 +4,15 @@ The "calculus_utils" module
 contains math functions that can be repeatedly used.
 """
 
+from math import *
 import numpy as np
+from dolfin import *
+
+worldcomm = MPI.comm_world
+selfcomm = MPI.comm_self
+
+mpisize = MPI.size(worldcomm)
+mpirank = MPI.rank(worldcomm)
 
 def compute_rate(x,y):
     """
@@ -133,7 +141,9 @@ def extrapolate_array(vec, direction="both"):
         extrapo_vec = np.concatenate((np.array([el_left]), vec, 
                                       np.array([el_right])))
     else:
-        raise TypeError("Direction type {} is not defined.".format(direction))
+        if mpirank == 0:
+            raise TypeError("Direction type {} is "
+                            "not defined.".format(direction))
     return extrapo_vec
 
 def remove_elements_by_value(data, value, axis=0, side=0):
@@ -156,7 +166,8 @@ def remove_elements_by_value(data, value, axis=0, side=0):
     """
     num_rows, num_cols = data.shape
     if axis > num_cols:
-        raise IndexError("axis index {} out of range.".format(axis))
+        if mpirank == 0:
+            raise IndexError("axis index {} out of range.".format(axis))
     res_array = []
 
     if side == 0:
@@ -168,7 +179,8 @@ def remove_elements_by_value(data, value, axis=0, side=0):
                 if data[i,axis] < value:
                     res_array += [data[i],]
     else:
-        raise IndexError("side index {} is not valid.".format(side))
+        if mpirank == 0:
+            raise IndexError("side index {} is not valid.".format(side))
     return np.array(res_array)
 
 def sort_coord(coord, axis=0):

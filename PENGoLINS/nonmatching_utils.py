@@ -13,9 +13,8 @@ from mpi4py import MPI as pyMPI
 from petsc4py import PETSc
 from tIGAr.common import *
 from tIGAr.BSplines import *
-from tIGAr.NURBS import *
-from igakit.cad import *
 
+from PENGoLINS.NURBS4OCC import *
 from PENGoLINS.transfer_matrix import *
 from PENGoLINS.calculus_utils import *
 
@@ -59,7 +58,8 @@ def arg2v(x):
     elif isinstance(x, PETSC4PY_VECTOR):
         x_PETSc = x
     else:
-        raise TypeError("Type " + str(type(x)) + " is not supported.")
+        if mpirank == 0:
+            raise TypeError("Type " + str(type(x)) + " is not supported.")
     return x_PETSc
 
 def arg2m(A):
@@ -73,7 +73,8 @@ def arg2m(A):
     elif isinstance(A, PETSC4PY_MATRIX):
         A_PETSc = A
     else:
-        raise TypeError("Type " + str(type(A)) + " is not supported.")
+        if mpirank == 0:
+            raise TypeError("Type " + str(type(A)) + " is not supported.")
     return A_PETSc
 
 def A_x(A, x):
@@ -572,7 +573,8 @@ def solve_nested_mat(A, x, b, solver=None):
         If None, use dolfin solver
     """
     if not isinstance(A, PETSC4PY_MATRIX):
-        raise TypeError("Type "+str(type(A))+" is not supported yet.")
+        if mpirank == 0:
+            raise TypeError("Type "+str(type(A))+" is not supported yet.")
     if solver is None:
         # Only works in parallel
         # PARALLEL NOTE: PETSc error code 56
@@ -694,6 +696,7 @@ def generate_interpolated_data(data, num_pts):
 
     if rows > num_pts:
         if mpirank == 0:
+            print("Generating interpolated data ...")
             print("Number of points to interpolate {} is smaller than the "
                   "number of given points {}, removing points from data to "
                   "match the number of points.".format(num_pts, rows))

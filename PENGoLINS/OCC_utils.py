@@ -19,15 +19,18 @@ from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCC.Core.TColgp import TColgp_Array1OfPnt, TColgp_Array2OfPnt
 from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
 from OCC.Core.TColStd import TColStd_Array2OfReal, TColStd_Array2OfInteger
+from OCC.Core.Approx import Approx_ParametrizationType
+from OCC.Core.GProp import GProp_GProps
+from OCC.Core.BRepGProp import (brepgprop_LinearProperties,
+                                brepgprop_SurfaceProperties,
+                                brepgprop_VolumeProperties)
+
 from OCC.Extend.DataExchange import read_step_file, read_iges_file
 from OCC.Extend.ShapeFactory import point_list_to_TColgp_Array1OfPnt
-from OCC.Extend.ShapeFactory import make_face
+from OCC.Extend.ShapeFactory import make_face, make_edge
 from OCC.Extend.TopologyUtils import TopologyExplorer
 from OCC.Display.SimpleGui import init_display
 
-from OCC.Core.Approx import Approx_ParametrizationType
-
-from igakit.cad import *
 from PENGoLINS.calculus_utils import *
 
 def read_igs_file(filename, as_compound=False):
@@ -132,9 +135,28 @@ def array2TColStdArray1OfReal(np_array):
     -------
     TColStdArray : TColStd_Array1OfReal
     """
-    TColStdArray = TColStd_Array1OfReal(1,np_array.shape[0])
+    TColStdArray = TColStd_Array1OfReal(1, np_array.shape[0])
     for i in range(np_array.shape[0]):
         TColStdArray.SetValue(i+1, np_array[i])
+    return TColStdArray
+
+def array2TColStdArray2OfReal(np_array):
+    """
+    Convert ndarray to 2D real TColStdArray.
+
+    Parameters
+    ----------
+    np_array : ndarray
+
+    Returns
+    -------
+    TColStdArray : TColStd_Array2OfReal
+    """
+    TColStdArray = TColStd_Array2OfReal(1, np_array.shape[0], 
+                                        1, np_array.shape[1])
+    for i in range(np_array.shape[0]):
+        for j in range(np_array.shape[1]):
+            TColStdArray.SetValue(i+1, j+1, np_array[i,j])
     return TColStdArray
 
 def array2TColStdArray1OfInteger(np_array):
@@ -149,9 +171,28 @@ def array2TColStdArray1OfInteger(np_array):
     -------
     TColStdArray : TColStd_Array1OfInteger
     """
-    TColStdArray = TColStd_Array1OfInteger(1,np_array.shape[0])
+    TColStdArray = TColStd_Array1OfInteger(1, np_array.shape[0])
     for i in range(np_array.shape[0]):
         TColStdArray.SetValue(i+1, int(np_array[i]))
+    return TColStdArray
+
+def array2TColStdArray2OfInteger(np_array):
+    """
+    Convert ndarray to 2D integer TColStdArray.
+
+    Parameters
+    ----------
+    np_array : ndarray
+
+    Returns
+    -------
+    TColStdArray : TColStd_Array2OfInteger
+    """
+    TColStdArray = TColStd_Array2OfInteger(1, np_array.shape[0], 
+                                           1, np_array.shape[1])
+    for i in range(np_array.shape[0]):
+        for j in range(np_array.shape[1]):
+            TColStdArray.SetValue(i+1, j+1, int(np_array[i,j]))
     return TColStdArray
 
 
@@ -227,6 +268,32 @@ def copy_surface(surface, BSpline=False):
     surface_shape_copy = BRepBuilderAPI_Copy(surface_shape).Shape()
     surface_copy = topoface2surface(surface_shape_copy, BSpline=BSpline)
     return surface_copy
+
+def copy_BSpline_surface(bs):
+    """
+    Create a new BSpline surface same with ``bs``.
+
+    Parameters
+    ----------
+    bs : OCC BSpline Surface
+
+    Returns
+    -------
+    bs_new : OCC BSpline Surface
+    """
+    n_rows = bs.Poles().NbRows()
+    n_cols = bs.Poles().NbColumns()
+    weights_array = np.zeros((n_rows, n_cols))
+    for i in range(n_rows):
+        for j in range(n_cols):
+            weights_array[i,j] = bs.Weight(i+1,j+1)
+    weights = array2TColStdArray2OfReal(weights_array)
+    bs_new = Geom_BSplineSurface(bs.Poles(), weights, 
+                                 bs.UKnots(), bs.VKnots(), 
+                                 bs.UMultiplicities(), bs.VMultiplicities(), 
+                                 bs.UDegree(), bs.VDegree())
+    return bs_new
+
 
 def get_curve_coord(curve, num_pts=20, sort_axis=None, flip=False):
     """
@@ -305,6 +372,42 @@ def project_locations_on_surface(locations, surf):
         res[i,:] = proj_pt.Coord()
     return res
 
+def curve_length(curve):
+    """
+    Measure the length of a given ``curve``.
+
+    Parameters
+    ----------
+    curve : OCC Geom_Curve or Geom_BSplineCurve
+
+    Returns
+    -------
+    length : float
+    """
+    edge = make_edge(curve)
+    prop = GProp_GProps()
+    brepgprop_LinearProperties(edge, prop)
+    length = prop.Mass()
+    return length
+
+def surface_area(surface, tol=1e-6):
+    """
+    Returns the area of a given ``surface``.
+
+    Parameters
+    ----------
+    surface : OCC Geom_Surface or Geom_BSplineSurface
+
+    Returns
+    -------
+    area : float
+    """
+    face = make_face(surface, tol)
+    prop = GProp_GProps()
+    brepgprop_LinearProperties(face, prop)
+    area = prop.Mass()
+    return area
+
 def parametric_coord(locations, surf):
     """
     Return the parametric locations of a list of physical coordinates
@@ -322,7 +425,7 @@ def parametric_coord(locations, surf):
     uv_coords = []
     for i in range(locations.shape[0]):
         pt = gp_Pnt(locations[i,0], locations[i,1], locations[i,2])
-        pt_proj = GeomAPI_ProjectPointOnSurf(pt, surf)#, 1e-12)
+        pt_proj = GeomAPI_ProjectPointOnSurf(pt, surf, 1e-9)
         uv_coords += [pt_proj.LowerDistanceParameters(),]
     return np.array(uv_coords)
 
@@ -357,12 +460,15 @@ def decrease_knot_multiplicity(occ_bs_surf, rtol=1e-2):
         if u_excess[-1]:
             rem_u_knots += [occ_bs_surf.RemoveUKnot(i, 1, geom_tol)]
     if True in u_excess:
-        print("*** Warning: u knots have interior multiplicity ", 
-              "greater than 1 ***")
+        if mpirank == 0:
+            print("*** Warning: u knots have interior multiplicity " 
+                  "greater than 1 ***")
     if False in rem_u_knots:
-        print("Excessive u knots are not removed!")
+        if mpirank == 0:
+            print("Excessive u knots are not removed!")
     elif True in rem_u_knots:
-        print("Excessive u knots are removed with tolerance:", geom_tol)
+        if mpirank == 0:
+            print("Excessive u knots are removed with tolerance:", geom_tol)
 
     v_knots = occ_bs_surf.VKnots()
     v_mults = occ_bs_surf.VMultiplicities()
@@ -374,16 +480,20 @@ def decrease_knot_multiplicity(occ_bs_surf, rtol=1e-2):
         if v_excess[-1]:
             rem_v_knots += [occ_bs_surf.RemoveVKnot(i, 1, geom_tol)]
     if True in v_excess:
-        print("*** Warning: v knots have interior multiplicity ", 
-              "greater than 1 ***")
+        if mpirank == 0:
+            print("*** Warning: v knots have interior multiplicity "
+                  "greater than 1 ***")
     if False in rem_v_knots:
-        print("Excessive v knots are not removed!")
+        if mpirank == 0:
+            print("Excessive v knots are not removed!")
     elif True in rem_v_knots:
-        print("Excessive v knots are removed with tolerance: ", geom_tol)
+        if mpirank == 0:
+            print("Excessive v knots are removed with tolerance: ", geom_tol)
 
     return occ_bs_surf
 
-def remove_surf_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
+def remove_surf_dense_knots(occ_bs_surf, dist_ratio_remove=0.5, 
+                            rtol=1e-2, max_rtol_ratio=10):
     """
     Check distance between B-Spline surface knots, remove one if 
     distance between two adjacent knots is smaller than a ratio of
@@ -396,8 +506,15 @@ def remove_surf_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
     Parameters
     ----------
     occ_bs_surf : OCC BSplineSurface
-    dist_ratio : float, default is 0.4
+    dist_ratio_remove : float, default is 0.5
+        The ratio of average knots distance, if two the distance
+        between two knows is smaller the this ratio times average
+        distance, then one of the knots will be removed with 
+        the following ``rtol``
     rtol : float, default is 1e-2
+    max_rtol_ratio : int, default is 10
+        The maximum ratio for the relative tolerance when removing
+        knots
 
     Returns
     -------
@@ -405,38 +522,29 @@ def remove_surf_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
     """
     # print("Removing knots")
 
-    for i in range(3):
+    for i in range(3):  # Use three iterations to remove dense knots
         bs_data = BSplineSurfaceData(occ_bs_surf)
-
-        # Compute the approximated diagonal length of B-Spline surface
-        pt00 = gp_Pnt()
-        pt11 = gp_Pnt()
-        occ_bs_surf.D0(occ_bs_surf.Bounds()[0], occ_bs_surf.Bounds()[2], pt00)
-        occ_bs_surf.D0(occ_bs_surf.Bounds()[1], occ_bs_surf.Bounds()[3], pt11)
-        diag_len = np.linalg.norm(np.array(pt00.Coord())
-                                  -np.array(pt11.Coord()))
-        geom_tol = rtol*diag_len  # Geometric tolerance
+        geom_tol = rtol*surface_area(occ_bs_surf)
 
         # Check u direction
         u_knots_diff = np.diff(bs_data.UKnots)
         u_knots_diff_avg = np.average(u_knots_diff)
         u_ind_off = 2
         for u_diff_ind, u_knot_dist in enumerate(u_knots_diff):
-            if u_knot_dist < u_knots_diff_avg*dist_ratio:
+            if u_knot_dist < u_knots_diff_avg*dist_ratio_remove:
                 rem_u_ind = u_diff_ind + u_ind_off
                 if rem_u_ind == occ_bs_surf.NbUKnots():
                     rem_u_ind -= 1
-                # print("Remove u ind:", rem_u_ind)
                 rem_u_knot = False
                 geom_tol_u = geom_tol
                 while rem_u_knot is not True:
                     rem_u_knot = occ_bs_surf.RemoveUKnot(rem_u_ind, 
                                                          0, geom_tol_u)
                     geom_tol_u = geom_tol_u*(1+1e-3)
-                    if geom_tol_u > geom_tol*20:
+                    if geom_tol_u > geom_tol*max_rtol_ratio:
                         break
                 # 0 indicates knot multiplicity.
-                # rem_u_knot is boolean, True is the knot is removed.
+                # rem_u_knot is boolean, True means the knot is removed.
                 if rem_u_knot:
                     u_ind_off -= 1
                     # print("u knots is removed")
@@ -448,21 +556,20 @@ def remove_surf_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
         v_knots_diff_avg = np.average(v_knots_diff)
         v_ind_off = 2
         for v_diff_ind, v_knot_dist in enumerate(v_knots_diff):
-            if v_knot_dist < v_knots_diff_avg*dist_ratio:
+            if v_knot_dist < v_knots_diff_avg*dist_ratio_remove:
                 rem_v_ind = v_diff_ind + v_ind_off
                 if rem_v_ind == occ_bs_surf.NbVKnots():
                     rem_v_ind -= 1
-                # print("Remove v ind:", rem_v_ind)
                 rem_v_knot = False
                 geom_tol_v = geom_tol
                 while rem_v_knot is not True:
                     rem_v_knot = occ_bs_surf.RemoveVKnot(rem_v_ind, 
                                                          0, geom_tol_v)
                     geom_tol_v = geom_tol_v*(1+1e-3)
-                    if geom_tol_v > geom_tol*20:
+                    if geom_tol_v > geom_tol*max_rtol_ratio:
                         break
                 # 0 indicates knot multiplicity.
-                # rem_v_knot is boolean, True is the knot is removed.
+                # rem_v_knot is boolean, True means the knot is removed.
                 if rem_v_knot:
                     v_ind_off -= 1
                     # print("v knots is removed")
@@ -471,13 +578,13 @@ def remove_surf_dense_knots(occ_bs_surf, dist_ratio=0.4, rtol=1e-2):
 
     return occ_bs_surf
 
-def reconstruct_BSpline_surface(occ_bs_surf, u_num_eval=30, v_num_eval=30, 
+def reparametrize_BSpline_surface(occ_bs_surf, u_num_eval=30, v_num_eval=30, 
                                 bs_degree=3, bs_continuity=3, 
                                 tol3D=1e-3, geom_scale=1., 
-                                remove_dense_knots=False, dist_ratio=0.5,
-                                rtol=1e-2):
+                                remove_dense_knots=True, 
+                                dist_ratio_remove=0.5, rtol=1e-2):
     """
-    Return reconstructed B-spline surface by evaluating the positions
+    Return reparametrized B-spline surface by evaluating the positions
     of the original surface.
 
     Parameters
@@ -513,69 +620,20 @@ def reconstruct_BSpline_surface(occ_bs_surf, u_num_eval=30, v_num_eval=30,
                               pt_temp.Coord()[1]*geom_scale, 
                               pt_temp.Coord()[2]*geom_scale)
             occ_bs_res_pts.SetValue(i+1, j+1, pt_temp0)
-    occ_bs_res = GeomAPI_PointsToBSplineSurface(occ_bs_res_pts, 
+    occ_bs_res_temp = GeomAPI_PointsToBSplineSurface(occ_bs_res_pts, 
                     Approx_ParametrizationType(0), bs_degree, bs_degree, 
-                    bs_continuity, tol3D).Surface()
+                    bs_continuity, tol3D)
 
-        # Check element shape, reduce number of evaluations if needed
-        # bs_res_data = BSplineSurfaceData(occ_bs_res)
-        # phy_coords = knots_geom_mapping(occ_bs_res)
-        # bs_AR = BSpline_element_AR(occ_bs_res)
-        # bs_AR_avg = [np.zeros(bs_AR.shape[0]), np.zeros(bs_AR.shape[1])]
-        # for i in range(bs_AR_avg[0].shape[0]):
-        #     bs_AR_avg[0][i] = np.average(bs_AR[i,:])
-        #     if bs_AR_avg[0][i] > 3:
-        #         phy_coords_list = phy_coords[i:i+2,:,:]
-        #         element_AR_avg_u = np.average(compute_list_element_AR(
-        #                            phy_coords_list))
-        #         if (element_AR_avg_u < 0.1 and i !=0 
-        #             and i!= bs_AR_avg[0].shape[0]-1):
-        #             if u_num_eval > round(u_num_eval_max/5):
-        #                 u_num_eval -= 1
+    # print("reparametrizaion Is Done for BSpline surface", 
+    #       occ_bs_res_temp.IsDone())
 
-        # for i in range(bs_AR_avg[1].shape[0]):
-        #     bs_AR_avg[1][i] = np.average(bs_AR[:,i])
-        #     if bs_AR_avg[1][i] > 3:
-        #         phy_coords_list = phy_coords[:,i:i+2,:]
-        #         element_AR_avg_v = np.average(compute_list_element_AR(
-        #                                       phy_coords_list))
-        #         if (element_AR_avg_v < 0.1 and i !=0 
-        #             and i!= bs_AR_avg[1].shape[0]-1):
-        #             if v_num_eval > round(v_num_eval_max/5):
-        #                 v_num_eval -= 1
+    occ_bs_res = occ_bs_res_temp.Surface()
 
-        # phy_coords = knots_geom_mapping(occ_bs_res)
-        # bs_el_AR_avg = [np.zeros(phy_coords.shape[0]-1), 
-        #                 np.zeros(phy_coords.shape[1]-1)]
-        # for i in range(1,bs_el_AR_avg[0].shape[0]-1):
-        #     phy_coords_list = phy_coords[i:i+2,:,:]
-        #     element_AR_avg_u = np.average(compute_list_element_AR(
-        #                        phy_coords_list))
-        #     bs_el_AR_avg[0][i] = element_AR_avg_u
-        # if len(bs_el_AR_avg[0][1:-1]) > 0:
-        #     if np.min(bs_el_AR_avg[0][1:-1]) < 0.1:
-        #         if u_num_eval > round(u_num_eval_max/5):
-        #             u_num_eval -= 1
-
-        # for i in range(1,bs_el_AR_avg[1].shape[0]-1):
-        #     phy_coords_list = phy_coords[:,i:i+2,:]
-        #     element_AR_avg_v = np.average(compute_list_element_AR(
-        #                        phy_coords_list))
-        #     bs_el_AR_avg[1][i] = element_AR_avg_v
-        # if len(bs_el_AR_avg[1][1:-1]) > 0:
-        #     if np.min(bs_el_AR_avg[1][1:-1]) < 0.1:
-        #         if v_num_eval > round(v_num_eval_max/5):
-        #             v_num_eval -= 1
-
-        # if np.min(bs_el_AR_avg[0]) > 0.1 and np.min(bs_el_AR_avg[1]) > 0.1:
-        #     break
-
-    # # Check if surface has excessive interior u and v knots
-    # decrease_knot_multiplicity(occ_bs_res, rtol)
-
+    # Check if surface has excessive interior u and v knots
+    decrease_knot_multiplicity(occ_bs_res, rtol)
     # Remove densely distributed knots
     if remove_dense_knots:
-        remove_surf_dense_knots(occ_bs_res, dist_ratio, rtol)
+        remove_surf_dense_knots(occ_bs_res, dist_ratio_remove, rtol)
 
     return occ_bs_res
 
@@ -758,24 +816,28 @@ def compute_list_element_AR(phy_coords):
     phy_coords_diff1 = np.diff(phy_coords, axis=1)
     element_len1 = np.linalg.norm(phy_coords_diff1, axis=-1)
 
+    eps = 1e-12
     element_AR = np.zeros(phy_coords.shape[1]-1)
     for i in range(len(element_AR)):
         AR_fac = 1.
-        sin_el1_angle = 1
-        if element_len0[0,i] < 1e-13 or element_len0[0,i+1] < 1e-13:
+        sin_el_angle = 1
+        if element_len0[0,i] < eps or element_len0[0,i+1] < eps:
             AR_fac = 2.
-        elif element_len1[0,i] < 1e-13 or element_len1[1,i] < 1e-13:
-            sin_el1_angle = np.linalg.norm(np.cross(phy_coords[0,i], 
-                            phy_coords[1,i]))/(np.linalg.norm(
-                            phy_coords[0,i])*np.linalg.norm(phy_coords[1,i]))
+        elif element_len1[0,i] < eps or element_len1[1,i] < eps:
+            # sin value of the singularity angle
+            vec1 = phy_coords[0,i] - phy_coords[1,i]
+            vec2 = phy_coords[0,i+1] - phy_coords[1,i+1]
+            sin_el_angle = np.linalg.norm(np.cross(vec1,vec2))\
+                           /(np.linalg.norm(vec1)*np.linalg.norm(vec2))
             AR_fac = 0.5
         element_AR[i] = (element_len0[0,i]+element_len0[0,i+1])\
                        /(element_len1[0,i]+element_len1[1,i])\
-                       *AR_fac*sin_el1_angle
+                       *AR_fac*sin_el_angle
     return element_AR
 
 def correct_BSpline_surface_element_shape(occ_bs_surf, 
-                                          u_knots_insert, v_knots_insert):
+                                          u_knots_insert, v_knots_insert, 
+                                          aspect_ratio_lim=4, dist_ratio=0.7):
     """
     Automatic element shape correction to get reasonable aspect ratio.
 
@@ -784,12 +846,19 @@ def correct_BSpline_surface_element_shape(occ_bs_surf,
     occ_bs_surf : OCC BSplineSurface
     u_knots_insert : int
     v_knots_insert : int
+    aspect_ratio_lim : float, optional, default is 4
+    dist_ratio : float, optional, default is 0.7
+        The ratio for averge distance between knots, when the
+        difference between an inserting knot and an existing
+        knot is larger than the ratio times average distance,
+        then this knot can be inserted (same for operation 
+        on indices)
 
     Returns
     -------
-    u_knots_insert : ndarray
+    u_knots_insert_res : ndarray
         Knots vector for insertion in u direction after shape correction
-    v_knots_insert : ndarray
+    v_knots_insert_res : ndarray
         Knots vector for insertion in v direction after shape correction
     """
     bs_data = BSplineSurfaceData(occ_bs_surf)
@@ -799,34 +868,32 @@ def correct_BSpline_surface_element_shape(occ_bs_surf,
     phy_coords = knots_geom_mapping(occ_bs_surf, u_knots_full, v_knots_full)
     bs_AR = BSpline_element_AR(occ_bs_surf, 
                                u_knots_full, v_knots_full)
-    bs_AR_avg = [np.zeros(bs_AR.shape[0]), np.zeros(bs_AR.shape[1])]
 
+    bs_AR_avg = [np.zeros(bs_AR.shape[0]), np.zeros(bs_AR.shape[1])]
     u_knots_add_insert = []
     v_knots_add_insert = []
 
     for i in range(bs_AR_avg[0].shape[0]):
         bs_AR_avg[0][i] = np.average(bs_AR[i,:])
-        if bs_AR_avg[0][i] > 3:
+        if bs_AR_avg[0][i] > aspect_ratio_lim:
             phy_coords_list = phy_coords[i:i+2,:,:]
             element_AR_avg_u = np.average(compute_list_element_AR(
-                               phy_coords_list))
-            # print("element AR average u:", element_AR_avg_u)
-            if element_AR_avg_u > 3:
+                                          phy_coords_list))
+            if element_AR_avg_u > aspect_ratio_lim:
                 u_knots_add_insert += [np.linspace(u_knots_full[i], 
                                        u_knots_full[i+1], round(
-                                       (element_AR_avg_u+1)*0.8))[1:-1]]
+                                       (element_AR_avg_u)))[1:-1]]
 
     for i in range(bs_AR_avg[1].shape[0]):
         bs_AR_avg[1][i] = np.average(bs_AR[:,i])
-        if bs_AR_avg[1][i] > 3:
+        if bs_AR_avg[1][i] > aspect_ratio_lim:
             phy_coords_list = phy_coords[:,i:i+2,:]
             element_AR_avg_v = np.average(compute_list_element_AR(
                                           phy_coords_list))
-            # print("element AR average v:", element_AR_avg_v)
-            if element_AR_avg_v > 3:
+            if element_AR_avg_v > aspect_ratio_lim:
                 v_knots_add_insert += [np.linspace(v_knots_full[i],
                                        v_knots_full[i+1], round(
-                                       (element_AR_avg_v+1)*0.8))[1:-1]]
+                                       (element_AR_avg_v)))[1:-1]]
     u_knots_insert_res = []
     v_knots_insert_res = []
     if len(u_knots_add_insert) == 0 and len(v_knots_add_insert) == 0:
@@ -855,27 +922,33 @@ def correct_BSpline_surface_element_shape(occ_bs_surf,
                             enumerate(v_knots_corret_init) \
                             if v_knot in bs_data.VKnots]
 
-        num_insert_max = int(np.max([len(u_knots_insert), 
-                                     len(v_knots_insert)])*1.2)
+        num_insert_max = np.max([len(u_knots_insert)+len(bs_data.UKnots), 
+                                 len(v_knots_insert)+len(bs_data.VKnots)])
         num_u_knots = len(u_knots_corret_init)
         num_v_knots = len(v_knots_corret_init)
         num_knots_max = np.max([num_u_knots, num_v_knots])
 
         if num_knots_max > num_insert_max:
+            # print("Removing over refined knots")
+            # print("num_insert_max:", num_insert_max)
             num_insert_ratio = num_insert_max/num_knots_max
-            num_u_insert = round(num_u_knots*num_insert_ratio)
-            num_v_insert = round(num_v_knots*num_insert_ratio)
+            num_u_insert = ceil(num_u_knots*num_insert_ratio)
+            num_v_insert = ceil(num_v_knots*num_insert_ratio)
+            # print("num_u_insert:", num_u_insert)
+            # print("num_v_insert:", num_v_insert)
 
-            u_knots_ind_temp = np.array(np.linspace(0, num_u_knots+1, 
-                               num_u_insert+2)[1:-1], dtype=int)
-            v_knots_ind_temp = np.array(np.linspace(0, num_v_knots+1, 
-                               num_v_insert+2)[1:-1], dtype=int)
+            u_knots_ind_temp_all = np.array(np.linspace(0, num_u_knots+1, 
+                                   num_u_insert+2), dtype=int)
+            u_knots_ind_temp = u_knots_ind_temp_all[1:-1]
+            v_knots_ind_temp_all = np.array(np.linspace(0, num_v_knots+1, 
+                                   num_v_insert+2), dtype=int)
+            v_knots_ind_temp = v_knots_ind_temp_all[1:-1]
 
             u_insert_ind = []
             if len(u_knots_init_ind) > 0:
                 for u_ind in u_knots_ind_temp:
                     if np.min(np.abs(u_ind-u_knots_init_ind)) > \
-                        np.average(np.diff(u_knots_ind_temp))*0.4:
+                        np.average(np.diff(u_knots_ind_temp_all))*dist_ratio:
                         u_insert_ind += [u_ind,]
             else:
                 u_insert_ind = u_knots_ind_temp
@@ -884,7 +957,7 @@ def correct_BSpline_surface_element_shape(occ_bs_surf,
             if len(v_knots_init_ind) > 0:
                 for v_ind in v_knots_ind_temp:
                     if np.min(np.abs(v_ind-v_knots_init_ind)) > \
-                        np.average(np.diff(v_knots_ind_temp))*0.4:
+                        np.average(np.diff(v_knots_ind_temp_all))*dist_ratio:
                         v_insert_ind += [v_ind,]
             else:
                 v_insert_ind = v_knots_ind_temp
@@ -909,10 +982,81 @@ def correct_BSpline_surface_element_shape(occ_bs_surf,
 
     return (u_knots_insert_res, v_knots_insert_res)
 
+def remove_knots_near_singularity(occ_bs_surf, u_knots_insert, 
+                                  v_knots_insert, max_remove_percent=0.1):
+    """
+    This function is used to remove knots near the singulartiy to
+    prevent the very tiny elements.
+
+    Parameters
+    ----------
+    occ_bs_surf : OCC Geom BSplienSurface
+    u_knots_insert : ndarray
+    v_knots_insert : ndarray
+    max_remove_percent : float, optional, default is 0.1
+        Maximum percent of number of knots that can be removed
+    """
+    bs_data = BSplineSurfaceData(occ_bs_surf)
+    u_knots = bs_data.UKnots
+    v_knots = bs_data.VKnots
+    num_u_insert = len(u_knots_insert)
+    num_v_insert = len(v_knots_insert)
+    phy_coords = knots_geom_mapping(occ_bs_surf, u_knots, v_knots)
+
+    eps = 1e-12  # tolerance for singularity
+
+    # Check singularities along u direction
+    if np.linalg.norm(phy_coords[0,0] - phy_coords[0,-1]) < eps:
+        vec1 = phy_coords[1,0]- phy_coords[0,0]
+        vec2 = phy_coords[1,-1]- phy_coords[0,-1]
+        cos_angle_u0 = np.linalg.norm(np.dot(vec1,vec2))\
+                       /(np.linalg.norm(vec1)*np.linalg.norm(vec2))
+        num_remove_u0 = round(num_u_insert*max_remove_percent*cos_angle_u0**2)
+        start_ind_u = num_remove_u0
+    else:
+        start_ind_u = 0
+
+    if np.linalg.norm(phy_coords[-1,0] - phy_coords[-1,-1]) < eps:
+        vec1 = phy_coords[-2,0] - phy_coords[-1,0]
+        vec2 = phy_coords[-2,-1] - phy_coords[-1,-1]
+        cos_angle_u1 = np.linalg.norm(np.dot(vec1,vec2))\
+                       /(np.linalg.norm(vec1)*np.linalg.norm(vec2))
+        num_remove_u1 = round(num_u_insert*max_remove_percent*cos_angle_u1**2)
+        end_ind_u = num_u_insert - num_remove_u1
+    else:
+        end_ind_u = num_u_insert
+
+    # Check singularities along v direction
+    if np.linalg.norm(phy_coords[0,0] - phy_coords[-1,0]) < eps:
+        vec1 = phy_coords[0,1]- phy_coords[0,0]
+        vec2 = phy_coords[-1,1]- phy_coords[-1,0]
+        cos_angle_v0 = np.linalg.norm(np.dot(vec1,vec2))\
+                       /(np.linalg.norm(vec1)*np.linalg.norm(vec2))
+        num_remove_v0 = round(num_v_insert*max_remove_percent*cos_angle_v0**2)
+        start_ind_v = num_remove_v0
+    else:
+        start_ind_v = 0
+
+    if np.linalg.norm(phy_coords[0,-1] - phy_coords[-1,-1]) < eps:
+        vec1 = phy_coords[0,-2] - phy_coords[0,-1]
+        vec2 = phy_coords[-1,-2] - phy_coords[-1,-1]
+        cos_angle_v1 = np.linalg.norm(np.dot(vec1,vec2))\
+                       /(np.linalg.norm(vec1)*np.linalg.norm(vec2))
+        num_remove_v1 = round(num_v_insert*max_remove_percent*cos_angle_v1**2)
+        end_ind_v = num_v_insert - num_remove_v1
+    else:
+        end_ind_v = num_v_insert
+
+    u_knots_insert_res = u_knots_insert[start_ind_u:end_ind_u]
+    v_knots_insert_res = v_knots_insert[start_ind_v:end_ind_v]
+
+    return (u_knots_insert_res, v_knots_insert_res)
 
 def refine_BSpline_surface(occ_bs_surf, u_degree=3, v_degree=3,
                            u_num_insert=0, v_num_insert=0,
-                           correct_element_shape=True):
+                           correct_element_shape=True,
+                           aspect_ratio_lim=1.8, dist_ratio=0.7,
+                           copy_surf=True):
     """
     Increase B-Spline surface order, insert knots and 
     correct element shape if needed
@@ -924,30 +1068,48 @@ def refine_BSpline_surface(occ_bs_surf, u_degree=3, v_degree=3,
     v_degree : int, default is 3
     u_num_insert : int, default is 0
     v_num_insert : int, default is 0
+    dist_ratio : float, optional, default is 0.7
+        The ratio for averge distance between knots, when the
+        difference between an inserting knot and an existing
+        knot is larger than the ratio times average distance,
+        then this knot can be inserted (same for operation 
+        on indices)
     correct_element_shape : bool, default is True
+    copy_surf : bool, optional, default is True
+        If True, perform refinement for copy of the input
+        BSpline surface
 
     Returns
     -------
     occ_bs_surf : OCC BSplineSurface
     """
+    if copy_surf:
+        occ_bs_surf = copy_BSpline_surface(occ_bs_surf)
     # Increase B-Spline surface order
     if occ_bs_surf.UDegree() > u_degree:
-        print("Current u degree is greater than input u degree.")
+        if mpirank == 0:
+            print("*** Warning: Current u degree is greater "
+                  "than input u degree.")
     if occ_bs_surf.VDegree() > v_degree:
-        print("Current v degree is greater than input v degree.")
+        if mpirank == 0:
+            print("*** Warning: Current v degree is greater "
+                  "than input v degree.")
+
     occ_bs_surf.IncreaseDegree(u_degree, v_degree)
 
     bs_data = BSplineSurfaceData(occ_bs_surf) 
     u_knots, v_knots = bs_data.UKnots, bs_data.VKnots
 
+    # Remove inserting knots than are too close to existing knots
+    # based on aspect ratio
     if u_num_insert > 0:
         u_knots_pop = []
         u_knots_insert_temp = np.linspace(u_knots[0], u_knots[-1], 
                                           u_num_insert+2)[1:-1]
-        u_dist_avg = np.average(np.diff(u_knots_insert_temp))
+        u_dist_avg = (u_knots[-1] - u_knots[0])/(u_num_insert+1)
         for i in u_knots:
             for j in u_knots_insert_temp:
-                if abs(i-j) < 0.6*u_dist_avg:
+                if abs(i-j) < dist_ratio*u_dist_avg:
                     u_knots_pop += [j]
         u_knots_insert = [u_knot for u_knot in u_knots_insert_temp 
                           if u_knot not in u_knots_pop]
@@ -959,10 +1121,10 @@ def refine_BSpline_surface(occ_bs_surf, u_degree=3, v_degree=3,
         v_knots_pop = []
         v_knots_insert_temp = np.linspace(v_knots[0], v_knots[-1], 
                                           v_num_insert+2)[1:-1]
-        v_dist_avg = np.average(np.diff(v_knots_insert_temp))
+        v_dist_avg = (v_knots[-1] - v_knots[0])/(v_num_insert+1)
         for i in v_knots:
             for j in v_knots_insert_temp:
-                if abs(i-j) < 0.6*v_dist_avg:
+                if abs(i-j) < dist_ratio*v_dist_avg:
                     v_knots_pop += [j]
         v_knots_insert = [v_knot for v_knot in v_knots_insert_temp 
                           if v_knot not in v_knots_pop]
@@ -970,28 +1132,19 @@ def refine_BSpline_surface(occ_bs_surf, u_degree=3, v_degree=3,
     else:
         v_knots_insert = np.array([])
 
-    # Correct element shape
+    # Remove a few knows near singularity depends on the angle
+    u_knots_insert, v_knots_insert = remove_knots_near_singularity(
+                                     occ_bs_surf, u_knots_insert, 
+                                     v_knots_insert)
+
+    # Correct element shape based on limit aspect ratio
     if correct_element_shape:
         u_knots_insert, v_knots_insert = \
             correct_BSpline_surface_element_shape(occ_bs_surf, 
-            u_knots_insert, v_knots_insert)
+            u_knots_insert, v_knots_insert, 
+            aspect_ratio_lim, dist_ratio)
 
-    # TColStdArray1OfReal_u_knots = TColStd_Array1OfReal(1, 
-    #                               u_knots_insert.shape[0])
-    # TColStdArray1OfInteger_u_mults = TColStd_Array1OfInteger(1, 
-    #                             u_knots_insert.shape[0])
-    # for i in range(u_knots_insert.shape[0]):
-    #     TColStdArray1OfReal_u_knots.SetValue(i+1, u_knots_insert[i])
-    #     TColStdArray1OfInteger_u_mults.SetValue(i+1, 1)
-
-    # TColStd1OfReal_v_knots = TColStd_Array1OfReal(1, 
-    #                          v_knots_insert.shape[0])
-    # TColStd1OfInteger_v_mults = TColStd_Array1OfInteger(1, 
-    #                             v_knots_insert.shape[0])
-    # for i in range(v_knots_insert.shape[0]):
-    #     TColStd1OfReal_v_knots.SetValue(i+1, v_knots_insert[i])
-    #     TColStd1OfInteger_v_mults.SetValue(i+1, 1)
-
+    # Knot insertion
     if u_knots_insert.shape[0] > 0:
         TColStdArray1OfReal_u_knots = array2TColStdArray1OfReal(
                                       u_knots_insert)
@@ -1011,68 +1164,6 @@ def refine_BSpline_surface(occ_bs_surf, u_degree=3, v_degree=3,
                                  TColStdArray1OfInteger_v_mults)
 
     return occ_bs_surf
-
-
-def BSpline_surface2ikNURBS(occ_bs_surf, p=3, u_num_insert=0, 
-                            v_num_insert=0, refine=False):
-    """
-    Convert OCC BSplineSurface to igakit NURBS and refine the 
-    surface via knot insertion and order elevation as need.
-
-    Parameters
-    ----------
-    occ_bs_surf : OCC BSplineSurface
-    p : int, optional, default is 3.
-    u_num_insert : int, optional, default is 0.
-    v_num_insert : int, optional, default is 0.
-    refine : bool, default is True.
-
-    Returns
-    -------
-    ikNURBS : igakit NURBS
-    """
-    bs_data = BSplineSurfaceData(occ_bs_surf)
-    ikNURBS = NURBS(bs_data.knots, bs_data.control)
-
-    if refine:
-        # Order elevation
-        ikNURBS.elevate(0, p-ikNURBS.degree[0])
-        ikNURBS.elevate(1, p-ikNURBS.degree[1])
-
-        # Knot insertion
-        u_multiplicity, v_multiplicity = \
-            BSpline_surface_interior_multiplicity(occ_bs_surf)
-        u_knots, v_knots = bs_data.UKnots, bs_data.VKnots
-
-        if u_num_insert > 0:
-            u_knots_insert_single = np.linspace(0,1,u_num_insert+2)[1:-1]
-            for i in bs_data.UKnots:
-                for k in u_knots_insert_single:
-                    if abs(i-k) < (1/u_num_insert/2):
-                        u_knots_insert_single = np.delete(
-                            u_knots_insert_single,
-                            np.argwhere(u_knots_insert_single==k))
-            u_knots_insert = []
-            for i in range(len(u_knots_insert_single)):
-                u_knots_insert += [u_knots_insert_single[i]]*u_multiplicity
-            ikNURBS.refine(0, u_knots_insert)
-            # print("u_knots_insert:", u_knots_insert)
-
-        if v_num_insert > 0:
-            v_knots_insert_single = np.linspace(0,1,v_num_insert+2)[1:-1]
-            for i in bs_data.VKnots:
-                for k in v_knots_insert_single:
-                    if abs(i-k) < (1/v_num_insert/2):
-                        v_knots_insert_single = np.delete(
-                            v_knots_insert_single,
-                            np.argwhere(v_knots_insert_single==k))
-            v_knots_insert = []
-            for i in range(len(v_knots_insert_single)):
-                v_knots_insert += [v_knots_insert_single[i]]*v_multiplicity
-            ikNURBS.refine(1, v_knots_insert)
-            # print("v_knots_insert:", v_knots_insert)
-
-    return ikNURBS
 
 def get_int_cs_coords(int_cs, unique_coord=True):
     """
@@ -1135,55 +1226,6 @@ def count_knots_multiplicity(knots):
     knot_mult = np.array(knot_mult, dtype="int")
     return knot_mult
 
-def ikNURBS2BSpline_surface(ik_nurbs):
-    """
-    Convert igakit NNURBS to OCC Geom_BSplineSurface.
-
-    Parameters
-    ----------
-    ik_nurbs : igakit NURBS
-
-    Returns
-    -------
-    BSpline_surface : OCC Geom_BSplineSurface
-    """
-    num_control_u = ik_nurbs.control.shape[0]
-    num_control_v = ik_nurbs.control.shape[1]
-    p_u, p_v = ik_nurbs.degree
-
-    poles = TColgp_Array2OfPnt(1, num_control_u, 1, num_control_v)
-    weights = TColStd_Array2OfReal(1, num_control_u, 1, num_control_v)
-    for i in range(num_control_u):
-        for j in range(num_control_v):
-            pt_temp = gp_Pnt(ik_nurbs.control[i,j,0], 
-                             ik_nurbs.control[i,j,1], 
-                             ik_nurbs.control[i,j,2])
-            poles.SetValue(i+1, j+1, pt_temp)
-            weights.SetValue(i+1, j+1, ik_nurbs.control[i,j,3])
-
-    u_knots_unique = np.unique(ik_nurbs.knots[0])
-    u_knots_len = len(u_knots_unique)
-    u_knots = TColStd_Array1OfReal(1, u_knots_len)
-    u_mults_array = count_knots_multiplicity(ik_nurbs.knots[0])
-    u_mults = TColStd_Array1OfInteger(1, u_knots_len)
-    for i in range(u_knots_len):
-        u_knots.SetValue(i+1, u_knots_unique[i])
-        u_mults.SetValue(i+1, int(u_mults_array[i]))
-
-    v_knots_unique = np.unique(ik_nurbs.knots[1])
-    v_knots_len = len(v_knots_unique)
-    v_knots = TColStd_Array1OfReal(1, v_knots_len)
-    v_mults_array = count_knots_multiplicity(ik_nurbs.knots[1])
-    v_mults = TColStd_Array1OfInteger(1, v_knots_len)
-    for i in range(v_knots_len):
-        v_knots.SetValue(i+1, v_knots_unique[i])
-        v_mults.SetValue(i+1, int(v_mults_array[i]))
-
-    BSpline_surface = Geom_BSplineSurface(poles, weights, u_knots, v_knots, 
-                                          u_mults, v_mults, p_u, p_v)
-
-    return BSpline_surface
-
 def BSpline_surface_section(BSpline, para_loc, u_degree, v_degree, 
                             continuity=None, tol3D=1e-4):
     """
@@ -1217,6 +1259,50 @@ def BSpline_surface_section(BSpline, para_loc, u_degree, v_degree,
     bs_sec = GeomAPI_PointsToBSplineSurface(bs_sec_pts, u_degree, v_degree, 
                                             continuity, tol3D).Surface()
     return bs_sec
+
+def BSpline_mesh_size(BSpline_surf_data):
+    """
+    Compute averge mesh size of given BSpline surface data.
+
+    Parameters
+    ----------
+    BSpline_surf_data : instance of BSplineSurfaceData
+
+    Returns
+    -------
+    mesh_size_array : ndarray
+    """
+    surface = BSpline_surf_data.surface
+    u_knots = BSpline_surf_data.UKnots
+    v_knots = BSpline_surf_data.VKnots
+    num_u_knots = len(u_knots)
+    num_v_knots = len(v_knots)
+    phy_coords = knots_geom_mapping(surface, u_knots, v_knots)
+    mesh_size_array = np.zeros((num_u_knots-1, num_v_knots-1))
+
+    for i in range(num_u_knots-1):
+        for j in range(num_v_knots-1):
+            mesh_size_array[i,j] = np.linalg.norm(phy_coords[i+1,j+1] 
+                                                - phy_coords[i,j])
+
+    return mesh_size_array
+
+def point_surface_distance(point, surf):
+    """
+    Compute the nearest distance between a point and surface.
+
+    Parameters
+    ----------
+    point : OCC gp_Pnt
+    surf : OCC Geom BSplineSurface
+
+    Returns
+    -------
+    lower_dist : float
+    """
+    pt_proj = GeomAPI_ProjectPointOnSurf(point, surf)
+    lower_dist = pt_proj.LowerDistance()
+    return lower_dist
 
 
 class BSplineCurveData(object):
@@ -1294,11 +1380,11 @@ class BSplineSurfaceData(object):
     """
     def __init__(self, surface, normalize=True):
         """
-        Get the properties of a OCC surface.
+        Get the properties of an OCC BSplineSurface.
 
         Parameters
         ----------
-        surface : OCC B-spline surface
+        surface : OCC BSplineSurface
         normalize : bool, optional. Default is True.
         """
         self.surface = surface
@@ -1369,317 +1455,6 @@ class BSplineSurfaceData(object):
         res : ndarray
         """
         return self.control[:,:,-1]
-
-class BSplineSurfacesConnectedEdges(object):
-    """
-    Class computes the connected edges between two OCC B-spline 
-    surfaces based on their control points.
-    """
-    def __init__(self, surf1, surf2):
-        """
-        Parameters
-        ----------
-        surf1 : OCC B-spline surface
-        surf2 : OCC B-spline surface
-        """
-        self.surf1 = surf1
-        self.surf2 = surf2
-
-    @property
-    def connected_edges(self):
-        """
-        Compute the OCC B-spline curve of the connected edges.
-
-        Returns
-        -------
-        connected_edges : list of OCC Geom_Curves
-        """
-        face0 = make_face(self.surf1, 1e-6)
-        edges0 = get_face_edges(face0)
-        self.connected_edges0 = []
-        for i in range(len(edges0)):
-            int_cs = GeomAPI_IntCS(edges0[i], self.surf2)
-            int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
-            if len(int_cs_coord) > 2:
-                self.connected_edges0 += [edges0[i],]
-
-        face1 = make_face(self.surf2, 1e-6)
-        edges1 = get_face_edges(face1)
-        self.connected_edges1 = []
-        for i in range(len(edges1)):
-            int_cs = GeomAPI_IntCS(edges1[i], self.surf1)
-            int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
-            if len(int_cs_coord) > 2:
-                self.connected_edges1 += [edges1[i],]
-
-        if len(self.connected_edges0) == len(self.connected_edges1):
-            connected_edges = self.connected_edges0
-        else:
-            connected_edges = []
-
-        return connected_edges
-
-    @property
-    def num_connected_edges(self):
-        """
-        Return the number of connected edges between two OCC B-spline
-        surfaces.
-
-        Returns
-        -------
-        res : int
-        """
-        return len(self.connected_edges)
-
-    def get_coordinate(self, ind, num_pts=20, sort_axis=None):
-        """
-        Return the physical coordinates of ``ind``-th connected edge.
-
-        Parameters
-        ----------
-        ind : int
-        num_pts : int, optional, default is 20
-        sort_axis : int, {0, 1, 2}, optional, default is None
-
-        Returns
-        -------
-        connected_edge_coords : ndarray
-        """
-        assert ind < self.num_connected_edges and ind >= 0
-        connected_edge_coords = get_curve_coord(self.intersections[ind],
-                                              num_pts, sort_axis)
-        return connected_edge_coords
-    
-    def get_coordinates(self, num_pts=20, sort_axis=None):
-        """
-        Return the coordinates of the connected edges.
-
-        Parameters
-        ----------
-        num_pts : int
-        sort_axis : int, {1, 2, 3}, optional 
-
-        Returns
-        -------
-        connected_edges_coords : list of ndarray
-        """
-        connected_edges_coords = []
-        if self.num_connected_edges > 0:
-            for i in range(len(self.connected_edges)):
-                connected_edges_coords += [get_curve_coord(
-                                           self.connected_edges[i], 
-                                           num_pts, sort_axis)]
-        else:
-            print("Surface-surface connected edges are not detected, returns",
-                  " empty list.")
-        return connected_edges_coords
-
-    def get_parametric_coordinate(self, ind, num_pts=20, sort_axis=None):
-        """
-        Return the parametric coordinates of ``ind``-th connected edge.
-
-        Parameters
-        ----------
-        ind : int
-        num_pts : int, optional, default is 20
-        sort_axis : int, {0, 1, 2}, optional, default is None
-
-        Returns
-        -------
-        connected_edge_para_coords : list of two ndarray
-        """
-        assert ind < self.num_connected_edges and ind >= 0
-
-        edge_phy_coords = self.get_coordinate(ind, num_pts, sort_axis)
-        connected_edge_para_coords = [parametric_coord(edge_phy_coords, 
-                                                       self.surf1), 
-                                      parametric_coord(edge_phy_coords, 
-                                                       self.surf2)]
-        return connected_edge_para_coords
-
-    def get_parametric_coordinates(self, num_pts=20, sort_axis=None):
-        """
-        Return the parametric coordinates of the connected edges.
-
-        Parameters
-        ---------- 
-        num_pts : int, optional, default is 20
-        sort_axis : int, {0, 1, 2}, optional, default is None
-
-        Returns
-        -------
-        connected_edges_para_coords : list of lists that contains two ndarray
-        """
-        connected_edges_para_coords = []
-        if self.num_connected_edges > 0:
-            for i in range(self.num_connected_edges):
-                connected_edges_para_coords += \
-                    [self.get_parametric_coordinate(i, num_pts, sort_axis)]
-        else:
-            print("Surface-surface connected edges are not detected, returns",
-                  " empty list.")
-        return connected_edges_para_coords
-
-
-class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
-    """
-    Class computes intersections between two B-spline surfaces.
-    """
-    def __init__(self, surf1, surf2, rtol=1e-6):
-        """
-        Parameters
-        ----------
-        surf1 : OCC B-spline surface
-        surf2 : OCC B-spline surface
-        rtol : float, optional. Default is 1e-6.
-        """
-        super().__init__(surf1, surf2)
-        self.int_ss = GeomAPI_IntSS(surf1, surf2, rtol)
-
-    @property
-    def num_intersections(self):
-        """
-        Return the number of intersections between two surfaces. If these
-        two surfaces have connected surfaces, the number of intersections
-        is equal to the number of connected edges. Assume the connected 
-        edges and the surface-surface intersection don't exist at the same
-        time. Check the connected edges first.
-
-        Returns
-        -------
-        num_intersections : int
-        """
-        if self.num_connected_edges > 0:
-            num_intersections = self.num_connected_edges
-        else:
-            if self.int_ss.NbLines() > 1:
-                # Check if this is surface-edge intersection but computed 
-                # as multiple intersections by ``GeomAPI_IntSS``.
-                if (len(self.connected_edges0) > 0 and 
-                    len(self.connected_edges1) == 0):
-                    num_intersections = len(self.connected_edges0)
-                elif (len(self.connected_edges0) == 0 and 
-                      len(self.connected_edges1) > 0):
-                    num_intersections = len(self.connected_edges1)
-                else:
-                    num_intersections = self.int_ss.NbLines()
-            else:   
-                num_intersections = self.int_ss.NbLines()
-        return num_intersections
-
-    @property
-    def intersections(self):
-        """
-        Return the intersection curves.
-
-        Returns
-        -------
-        intersections : list of OCC Geom_Curves
-        """
-        intersections = []
-        if self.num_connected_edges > 0:
-            intersections = self.connected_edges
-        else:
-            if self.int_ss.NbLines() > 1:
-                if (len(self.connected_edges0) > 0 and 
-                    len(self.connected_edges1) == 0):
-                    intersections = self.connected_edges0
-                elif (len(self.connected_edges0) == 0 and 
-                      len(self.connected_edges1) > 0):
-                    intersections = self.connected_edges1
-                else:
-                    for i in range(self.int_ss.NbLines()):
-                        intersections += [self.int_ss.Line(i+1)]
-            else:   
-                for i in range(self.int_ss.NbLines()):
-                    intersections += [self.int_ss.Line(i+1)]
-        return intersections
-
-    def get_coordinate(self, ind, num_pts=20, sort_axis=None):
-        """
-        Return the physical coordinates of ``ind``-th intersection curve.
-
-        Parameters
-        ----------
-        ind : int
-        num_pts : int, optional, default is 20
-        sort_axis : int, {0, 1, 2}, optional, default is None
-
-        Returns
-        -------
-        int_coords : ndarray
-        """
-        assert ind < self.num_intersections and ind >= 0
-        int_coords = get_curve_coord(self.intersections[ind],
-                                     num_pts, sort_axis)
-        return int_coords
-
-    def get_coordinates(self, num_pts=20, sort_axis=None):
-        """
-        Return the physical coordinates of the intersection curves.
-
-        Parameters
-        ---------- 
-        num_pts : int, optional, default is 20
-        sort_axis : int, {0, 1, 2}, optional, default is None
-
-        Returns
-        -------
-        ints_coords : list of ndarray
-        """
-        ints_coords = []
-        if self.num_intersections > 0:
-            for i in range(self.num_intersections):
-                ints_coords += [get_curve_coord(self.intersections[i], 
-                                                num_pts, sort_axis)]
-        else:
-            print("Surface-surface intersections are not detected, returns ",
-                  "empty list.")
-        return ints_coords
-
-    def get_parametric_coordinate(self, ind, num_pts=20, sort_axis=None):
-        """
-        Return the parametric coordinates of ``ind``-th intersection curve.
-
-        Parameters
-        ----------
-        ind : int
-        num_pts : int, optional, default is 20
-        sort_axis : int, {0, 1, 2}, optional, default is None
-
-        Returns
-        -------
-        int_para_coords : list of two ndarray
-        """
-        assert ind < self.num_intersections and ind >= 0
-        int_phy_coords = self.get_coordinate(ind, num_pts, sort_axis)
-        int_para_coords = [parametric_coord(int_phy_coords, self.surf1), 
-                           parametric_coord(int_phy_coords, self.surf2)]
-        return int_para_coords
-
-    def get_parametric_coordinates(self, num_pts=20, sort_axis=None):
-        """
-        Return the parametric coordinates of the intersection curves.
-
-        Parameters
-        ---------- 
-        num_pts : int, optional, default is 20
-        sort_axis : int, {0, 1, 2}, optional, default is None
-
-        Returns
-        -------
-        ints_para_coords : list of lists that contains two ndarray
-        """
-        ints_para_coords = []
-        if self.num_intersections > 0:
-            for i in range(self.num_intersections):
-                ints_para_coords += [self.get_parametric_coordinate(i, 
-                                     num_pts, sort_axis)]
-        else:
-            print("Surface-surface intersections are not detected, returns ",
-                  "empty list.")
-        return ints_para_coords
-
 
 if __name__ == "__main__":
     pass
