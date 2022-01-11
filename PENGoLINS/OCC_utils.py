@@ -294,8 +294,8 @@ def copy_BSpline_surface(bs):
                                  bs.UDegree(), bs.VDegree())
     return bs_new
 
-
-def get_curve_coord(curve, num_pts=20, sort_axis=None, flip=False):
+def get_curve_coord(curve, num_pts=20, sort_axis=None, 
+                    flip=False, cut_side=None, cut_ratio=0):
     """
     Return the coordinates of a OCC curve.
 
@@ -309,14 +309,41 @@ def get_curve_coord(curve, num_pts=20, sort_axis=None, flip=False):
         Sort the coordinates based on the x, y or z axis.
     flip : bool, optional.
         Flip the coordinates. Default is False.
+    cut_side: None or str {"left", "right", "both"}, optional
+        The side of the curve that will be ignored when
+        measuring physical coordinates
+    cut_ratio : float, optional
+        The ratio of total parametric length to cut on the
+        ``cut_side`` side, this ratio is designed for the 
+        intersection between surfaces that have singularity. 
+        Cut the part of the end of the intersection can help 
+        reducing the stress concentration near the surface 
+        singularity.
     
     Returns
     -------
     curve_coord : ndarray
     """
     curve_coord = np.zeros((num_pts, 3))
-    u_para = np.linspace(curve.FirstParameter(),
-                         curve.LastParameter(),num_pts)
+    para_range = curve.LastParameter() - curve.FirstParameter()
+    if cut_side is None:
+        u_para = np.linspace(curve.FirstParameter(),
+                             curve.LastParameter(), num_pts)
+    elif cut_side == "left":
+        u_para = np.linspace(curve.FirstParameter()+cut_ratio*para_range,
+                             curve.LastParameter(), num_pts)
+    elif cut_side == "right":
+        u_para = np.linspace(curve.FirstParameter(),
+                             curve.LastParameter()-cut_ratio*para_range, 
+                             num_pts)
+    elif cut_side == "both":
+        u_para = np.linspace(curve.FirstParameter()+cut_ratio*para_range,
+                             curve.LastParameter()-cut_ratio*para_range, 
+                             num_pts)
+    else:
+        if mpirank == 0:
+            raise ValueError("Undefined ``cut_side`` name ", cut_side)
+
     p_temp = gp_Pnt()
     for i in range(num_pts):
         curve.D0(u_para[i], p_temp)
@@ -647,11 +674,11 @@ def knots_geom_mapping(occ_bs_surf, u_knots=None, v_knots=None):
     u_knots : ndarray
     v_knots : ndarray
     """
-    surf_data = BSplineSurfaceData(occ_bs_surf)
     if u_knots is None:
+        surf_data = BSplineSurfaceData(occ_bs_surf)
         u_knots = surf_data.UKnots
-    if v_knots is None:
         v_knots = surf_data.VKnots
+
     num_u_knots = u_knots.shape[0]
     num_v_knots = v_knots.shape[0]
     phy_pts = np.zeros((num_u_knots, num_v_knots, 3))
@@ -743,7 +770,7 @@ def quad_element_AR(quad_coords):
     for i in range(quad_coords.shape[0]):
         length_0i = np.linalg.norm(quad_coords[0,i]- quad_coords[1,i])
         length_1i = np.linalg.norm(quad_coords[i,0]- quad_coords[i,1])
-        if length_0i < 1e-15 or length_1i < 1e-15:
+        if length_0i < 1e-12 or length_1i < 1e-12:
             has_singularity = True
 
     rect0 = form_rectangle(quad_coords, mode=0)
@@ -1401,6 +1428,7 @@ class BSplineSurfaceData(object):
             self.VKnots = self.VKnots/self.VKnots[-1]
 
         self.degree = (self.surface.UDegree(), self.surface.VDegree())
+        self.check_singularity()
     
     @property
     def control(self):
@@ -1455,6 +1483,35 @@ class BSplineSurfaceData(object):
         res : ndarray
         """
         return self.control[:,:,-1]
+
+    def check_singularity(self):
+        """
+        Check if B-spline surface has singularity. If true, return the 
+        singularity positions in an array.
+        """
+        phy_coords = knots_geom_mapping(self.surface, self.UKnots, 
+                                        self.VKnots).reshape(1,-1,3)[0]
+        phy_coords_tree = cKDTree(phy_coords)
+        singu_pairs = phy_coords_tree.query_pairs(1e-12)
+        if len(singu_pairs) > 0:
+            self.singularity = True
+            # Indices of singularities in ``phy_coords``
+            singu_inds = np.unique(np.array(list(singu_pairs)))
+            # Coordinates of singularities
+            singu_coords_dup = phy_coords[singu_inds]
+            # Unique coordinates of singularities, change data type
+            # to "float32" to make the coordinates less accurate
+            # and get the desired unique coordinates.
+            _, singu_ind_temp = np.unique(np.array(singu_coords_dup, 
+                                dtype='float32'), True, axis=0)
+            singu_coords = singu_coords_dup[singu_ind_temp]
+            self.num_singularity = len(singu_coords)
+            self.singularity_coords = singu_coords
+        else:
+            self.singularity = False
+            self.num_singularity = 0
+            self.singularity_coords = []
+
 
 if __name__ == "__main__":
     pass

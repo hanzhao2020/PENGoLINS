@@ -12,15 +12,29 @@ class BSplineSurfacesConnectedEdges(object):
     Class computes the connected edges between two OCC B-spline 
     surfaces based on their control points.
     """
-    def __init__(self, surf1, surf2):
+    def __init__(self, surf1, surf2, 
+                 check_singularity=True, cut_ratio=0.05):
         """
         Parameters
         ----------
         surf1 : OCC B-spline surface
         surf2 : OCC B-spline surface
+        check_singularity : bool, optional
+            If True, the algorithm will check if two ends of the
+            connected edges coincide withe the surface singularity.
+            If so, a portion of the curve,
+            ``cut_ratio``*parametric_length, on this end will be 
+            ignored when getting physical and parametric coordinates.
+            This will help reducing the stress concentration near the 
+            surface singularity. Default is True
+        cut_ratio : float, optional, default is 0.05
         """
         self.surf1 = surf1
         self.surf2 = surf2
+        self.surf1_data = BSplineSurfaceData(self.surf1)
+        self.surf2_data = BSplineSurfaceData(self.surf2)
+        self.check_singularity = check_singularity
+        self.cut_ratio = cut_ratio
 
     @property
     def connected_edges(self):
@@ -109,6 +123,54 @@ class BSplineSurfacesConnectedEdges(object):
         """
         return len(self.connected_edges)
 
+    def check_curve_near_singularity(self, curve):
+        """
+        """
+        dim = 3
+        first_para = curve.FirstParameter()
+        last_para = curve.LastParameter()
+        first_coord = np.zeros(dim)
+        last_coord = np.zeros(dim)
+        first_pnt = gp_Pnt()
+        last_pnt = gp_Pnt()
+        curve.D0(first_para, first_pnt)
+        curve.D0(last_para, last_pnt)
+        for i in range(dim):
+            first_coord[i] = first_pnt.Coord()[i]
+            last_coord[i] = last_pnt.Coord()[i]
+        left_side = False
+        right_side = False
+        # Check if first_coord and last coord near singularity coordinates
+        # For surface 1
+        if self.surf1_data.singularity:
+            for i in range(self.surf1_data.num_singularity):
+                if np.linalg.norm(first_coord-self.surf1_data.\
+                    singularity_coords[i]) < 1e-3:
+                    left_side = True
+                if np.linalg.norm(last_coord-self.surf1_data.\
+                    singularity_coords[i]) < 1e-3:
+                    right_side = True
+        # For surface 2
+        if self.surf2_data.singularity:
+            for i in range(self.surf2_data.num_singularity):
+                if np.linalg.norm(first_coord-self.surf2_data.\
+                    singularity_coords[i]) < 1e-3:
+                    left_side = True
+                if np.linalg.norm(last_coord-self.surf2_data.\
+                    singularity_coords[i]) < 1e-3:
+                    right_side = True
+
+        if left_side is True and right_side is True:
+            cut_side = "both"
+        elif left_side is True and right_side is False:
+            cut_side = "left"
+        elif left_side is False and right_side is True:
+            cut_side = "right"
+        else:
+            cut_side = None
+
+        return cut_side
+
     def get_coordinate(self, ind, num_pts=20, sort_axis=None):
         """
         Return the physical coordinates of ``ind``-th connected edge.
@@ -125,8 +187,16 @@ class BSplineSurfacesConnectedEdges(object):
         """
         assert ind < self.num_connected_edges and ind >= 0, \
             "``ind`` is out of range (0, "+str(self.num_connected_edges)+")"
-        connected_edge_coords = get_curve_coord(self.intersections[ind],
-                                                num_pts, sort_axis)
+
+        cut_side = None
+        if self.check_singularity:
+            cut_side = self.check_curve_near_singularity(
+                       self.connected_edges[ind])
+
+        connected_edge_coords = get_curve_coord(self.connected_edges[ind],
+                                                num_pts, sort_axis,
+                                                cut_side=cut_side, 
+                                                cut_ratio=self.cut_ratio)
         return connected_edge_coords
     
     def get_coordinates(self, num_pts=20, sort_axis=None):
@@ -155,8 +225,10 @@ class BSplineSurfacesConnectedEdges(object):
         connected_edges_coords = []
         if self.num_connected_edges > 0:
             for i in range(len(self.connected_edges)):
-                connected_edges_coords += [get_curve_coord(
-                                           self.connected_edges[i], 
+                # connected_edges_coords += [get_curve_coord(
+                #                            self.connected_edges[i], 
+                #                            num_pts[i], sort_axis)]
+                connected_edges_coords += [self.get_coordinate(i,
                                            num_pts[i], sort_axis)]
         else:
             if mpirank == 0:
@@ -226,15 +298,25 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
     """
     Class computes intersections between two B-spline surfaces.
     """
-    def __init__(self, surf1, surf2, rtol=1e-6):
+    def __init__(self, surf1, surf2, rtol=1e-6, 
+                 check_singularity=True, cut_ratio=0.05):
         """
         Parameters
         ----------
         surf1 : OCC B-spline surface
         surf2 : OCC B-spline surface
         rtol : float, optional. Default is 1e-6.
+        check_singularity : bool, optional
+            If True, the algorithm will check if two ends of the
+            intersections coincide withe the surface singularity.
+            If so, a portion of the curve, 
+            ``cut_ratio``*parametric_length, on this end will be 
+            ignored when getting physical and parametric coordinates. 
+            This will help reducing the stress concentration near the 
+            surface singularity. Default is True
+        cut_ratio : float, optional, default is 0.05
         """
-        super().__init__(surf1, surf2)
+        super().__init__(surf1, surf2, check_singularity, cut_ratio)
         self.int_ss = GeomAPI_IntSS(surf1, surf2, rtol)
 
     @property
@@ -314,8 +396,16 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         """
         assert ind < self.num_intersections and ind >= 0, \
             "``ind`` is out of range (0, "+str(self.num_intersections)+")"
+
+        cut_side = None
+        if self.check_singularity:
+            cut_side = self.check_curve_near_singularity(
+                       self.intersections[ind])
+
         int_coords = get_curve_coord(self.intersections[ind],
-                                     num_pts, sort_axis)
+                                          num_pts, sort_axis,
+                                          cut_side=cut_side, 
+                                          cut_ratio=self.cut_ratio)
         return int_coords
 
     def get_coordinates(self, num_pts=20, sort_axis=None):
@@ -344,8 +434,8 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         ints_coords = []
         if self.num_intersections > 0:
             for i in range(self.num_intersections):
-                ints_coords += [get_curve_coord(self.intersections[i], 
-                                                num_pts[i], sort_axis)]
+                ints_coords += [self.get_coordinate(i, num_pts[i],
+                                                    sort_axis),]
         else:
             if mpirank == 0:
                 print("Surface-surface intersections are not detected, "
@@ -731,7 +821,6 @@ class OCCPreprocessing(object):
                           "True, but surface refinement has not been "
                           "performed yet.")
 
-
         self.mapping_list = []
         self.intersection_curves = []
         self.intersections_phy_coords = []
@@ -754,6 +843,7 @@ class OCCPreprocessing(object):
 
         for i in range(self.num_surfs):
             for j in range(i+1, self.num_surfs):
+                # print("i:", i, ", j:", j, " ---------------------")
                 bs_intersection = BSplineSurfacesIntersections(
                                     BSpline_surfs_temp[i], 
                                     BSpline_surfs_temp[j], rtol=rtol)
@@ -767,7 +857,8 @@ class OCCPreprocessing(object):
                         for k in range(num_int):
                             self.intersections_length += [curve_length(
                                 bs_intersection.intersections[k])]
-                            self.mortar_nels += [np.max([min_mortar_nel,
+                            self.mortar_nels += [np.max([
+                                min_mortar_nel*mortar_refine,
                                 ceil(self.intersections_length[-1]/np.min(
                                 [self.avg_mesh_sizes[i], 
                                 self.avg_mesh_sizes[j]])*mortar_refine)]),]

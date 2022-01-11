@@ -6,6 +6,7 @@ contains math functions that can be repeatedly used.
 
 from math import *
 import numpy as np
+from scipy.spatial import cKDTree
 from dolfin import *
 
 worldcomm = MPI.comm_world

@@ -894,7 +894,7 @@ def compute_line_Jacobian(X):
     line_Jacobian = sqrt(tr(dXdxi*dXdxi.T))
     return line_Jacobian
 
-def move_mortar_mesh(mortar_mesh, mesh_location):#, um=None):
+def move_mortar_mesh(mortar_mesh, mesh_location):
     """
     Move the mortar mesh to a specified location.
 
@@ -917,7 +917,7 @@ def move_mortar_mesh(mortar_mesh, mesh_location):#, um=None):
 
     mesh_location_flat = mesh_location_data[::-1].reshape(-1, 1)
     v2p(um.vector()).setValues(np.arange(mesh_location_flat.size, 
-                                dtype='int32'), mesh_location_flat)
+                               dtype='int32'), mesh_location_flat)
     v2p(um.vector()).ghostUpdate()
     set_coordinates(mortar_mesh.geometry(), um)
 
