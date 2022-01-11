@@ -13,7 +13,7 @@ class BSplineSurfacesConnectedEdges(object):
     surfaces based on their control points.
     """
     def __init__(self, surf1, surf2, 
-                 check_singularity=True, cut_ratio=0.05):
+                 check_singularity=True, cut_ratio=0.03):
         """
         Parameters
         ----------
@@ -27,7 +27,7 @@ class BSplineSurfacesConnectedEdges(object):
             ignored when getting physical and parametric coordinates.
             This will help reducing the stress concentration near the 
             surface singularity. Default is True
-        cut_ratio : float, optional, default is 0.05
+        cut_ratio : float, optional, default is 0.03
         """
         self.surf1 = surf1
         self.surf2 = surf2
@@ -299,7 +299,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
     Class computes intersections between two B-spline surfaces.
     """
     def __init__(self, surf1, surf2, rtol=1e-6, 
-                 check_singularity=True, cut_ratio=0.05):
+                 check_singularity=True, cut_ratio=0.03):
         """
         Parameters
         ----------
@@ -314,7 +314,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
             ignored when getting physical and parametric coordinates. 
             This will help reducing the stress concentration near the 
             surface singularity. Default is True
-        cut_ratio : float, optional, default is 0.05
+        cut_ratio : float, optional, default is 0.03
         """
         super().__init__(surf1, surf2, check_singularity, cut_ratio)
         self.int_ss = GeomAPI_IntSS(surf1, surf2, rtol)
@@ -766,7 +766,8 @@ class OCCPreprocessing(object):
 
     def compute_intersections(self, rtol=1e-4, mortar_refine=1, 
                               mortar_nels=None, min_mortar_nel=8, 
-                              sort_axis=None):
+                              sort_axis=None, check_singularity=True,
+                              cut_ratio=0.03):
         """
         Compute intersections between all input BSpline surfaces.
 
@@ -784,6 +785,15 @@ class OCCPreprocessing(object):
         min_mortar_nel : int, optional
             Minimum number of elements of mortar mesh, default is 8
         sort_axis : int, {0, 1, 2} or None, optional, default is None
+        check_singularity : bool, optional
+            If True, the algorithm will check if two ends of the
+            intersections coincide withe the surface singularity.
+            If so, a portion of the curve, 
+            ``cut_ratio``*parametric_length, on this end will be 
+            ignored when getting physical and parametric coordinates. 
+            This will help reducing the stress concentration near the 
+            surface singularity. Default is True
+        cut_ratio : float, optional, default is 0.03
         """
         if self.refine_is_done:
             self.avg_mesh_sizes = [np.average(BSpline_mesh_size(surf_data))
@@ -846,7 +856,9 @@ class OCCPreprocessing(object):
                 # print("i:", i, ", j:", j, " ---------------------")
                 bs_intersection = BSplineSurfacesIntersections(
                                     BSpline_surfs_temp[i], 
-                                    BSpline_surfs_temp[j], rtol=rtol)
+                                    BSpline_surfs_temp[j], rtol=rtol, 
+                                    check_singularity=check_singularity,
+                                    cut_ratio=cut_ratio)
                 if bs_intersection.num_intersections > 0:
                     num_int = bs_intersection.num_intersections
                     self.mapping_list += [[i, j],]*num_int
