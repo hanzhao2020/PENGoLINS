@@ -31,7 +31,7 @@ from OCC.Extend.ShapeFactory import make_face, make_edge
 from OCC.Extend.TopologyUtils import TopologyExplorer
 from OCC.Display.SimpleGui import init_display
 
-from PENGoLINS.calculus_utils import *
+from PENGoLINS.math_utils import *
 
 def read_igs_file(filename, as_compound=False):
     """

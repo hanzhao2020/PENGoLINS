@@ -16,7 +16,7 @@ from tIGAr.BSplines import *
 
 from PENGoLINS.NURBS4OCC import *
 from PENGoLINS.transfer_matrix import *
-from PENGoLINS.calculus_utils import *
+from PENGoLINS.math_utils import *
 
 DOLFIN_FUNCTION = function.function.Function
 DOLFIN_VECTOR = cpp.la.Vector
@@ -507,25 +507,13 @@ def create_nested_PETScMat(A_list, PREALLOC=500, comm=worldcomm):
     A.assemble()
     return A
 
-def ksp_solver(ksp_type=PETSc.KSP.Type.CG, pc_type=PETSc.PC.Type.LU, 
-               rtol=1e-15):
-    """
-    Create PETSc KSP solver with type of ``ksp_type``.
-
-    Parameters
-    ----------
-    ksp_type : type of KSP solver, optional
-    rtol : float, solver tolerance, optional
-    """
-    ksp = PETSc.KSP().create()
-    ksp.setType(ksp_type)
-    # ksp.getPC().setType(pc_type)
-    ksp.setTolerances(rtol=rtol)
-    ksp.setFromOptions()
-    return ksp
-
 def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, 
-              pc_type=PETSc.PC.Type.FIELDSPLIT, rtol=1e-15):
+              pc_type=PETSc.PC.Type.FIELDSPLIT, 
+              fieldsplit_type="additive",
+              fieldsplit_ksp_type=PETSc.KSP.Type.CG,
+              fieldsplit_pc_type=PETSc.PC.Type.LU, 
+              rtol=1e-15, max_it=100000,
+              ksp_view=False, monitor_residual=False):
     """
     Solve "Ax=b" using PETSc Krylov solver.
 
@@ -534,33 +522,74 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG,
     A : PETSc.Mat
     x : PETSc.Vec
     b : PETSc.Vec
-    ksp_type : type of KSP solver, optional
-    rtol : float, solver tolerance, optional
+    ksp_type : str, default is "cg"
+        KSP solver type, for addtioner type, see PETSc.KSP.Type
+    pc_type : str, default is "fieldsplit"
+        PETSc preconditioner type, for additional preconditioner 
+        type, see PETSc.PC.Type
+    fieldsplit_type : str, default is "additive"
+        Only needed if preconditioner is "fieldsplit". {"additive", 
+        "multiplicative", "symmetric_multiplicative", "schur"}
+    fieldsplit_ksp_type : str, default is "cg"
+    fieldsplit_pc_type : str, default is "lu"
+    rtol : float, default is 1e-15
+    max_it : int, default is 100000
+    ksp_view : bool, default is False
+    monitor_residual : bool, default is False
     """
+    nest_size = A.getNestSize()[0]
     ksp = PETSc.KSP().create()
     ksp.setType(ksp_type)
+    pc = ksp.getPC()
 
-    # # Setting preconditioner
-    # ksp.getPC().setType(pc_type)
-    # ksp.getPC().setType(PETSc.PC.Type.FIELDSPLIT)  # works in parallel
-    # ksp.getPC().setFieldSplitType(PETSc.PC.CompositeType.ADDITIVE) 
+    if ksp_view:
+        PETScOptions.set('ksp_view')
+    if monitor_residual: 
+        PETScOptions.set('ksp_monitor_true_residual')
 
-    PETScOptions.set('pc_type', 'fieldsplit')
-    PETScOptions.set('pc_fieldsplit_type', 'additive')
-    # # PETScOptions.set('pc_fieldsplit_detect_saddle_point')
+    PETScOptions.set('pc_type', pc_type)
 
-    PETScOptions.set('fieldsplit_0_ksp_type', 'preonly')
-    PETScOptions.set('fieldsplit_0_pc_type', 'lu')
+    if pc_type == PETSc.PC.Type.FIELDSPLIT:
+        PETScOptions.set('pc_type', 'fieldsplit')
+        PETScOptions.set('pc_fieldsplit_type', 'additive')
+        for i in range(nest_size):
+            fieldsplit_ksp_name = "fieldsplit_"+str(i)+"_ksp_type"
+            fieldsplit_pc_name = "fieldsplit_"+str(i)+"_pc_type"
+            PETScOptions.set(fieldsplit_ksp_name, fieldsplit_ksp_type)
+            PETScOptions.set(fieldsplit_pc_name, fieldsplit_pc_type)
 
-    PETScOptions.set('fieldsplit_1_ksp_type', 'preonly')
-    PETScOptions.set('fieldsplit_1_pc_type', 'jacobi')
-    
+        fields = []
+        for i in range(nest_size):
+            fields += [(str(i), A.getNestISs()[0][i]),]
+        pc.setFieldSplitIS(*fields)
+    else:
+        pc.setType(pc_type)
+
     ksp.setTolerances(rtol=rtol)
+    ksp.max_it = max_it
     ksp.setOperators(A)
     ksp.setFromOptions()
     ksp.solve(b, x)
 
-def solve_nested_mat(A, x, b, solver=None):
+    if ksp.getResidualNorm() < rtol:
+        if mpirank == 0:
+            print("KSP solver successfully converged with {} "
+                  "iterations.".format(ksp.getIterationNumber()))
+    else:
+        if mpirank == 0:
+            print("KSP solver didn't converge for relative tolerance {} "
+                  "and max iteration {}. Consider using larger max "
+                  "iterations or smaller relative tolerance."
+                  .format(ksp.getTolerances()[0], ksp.max_it))
+
+def solve_nested_mat(A, x, b, solver='ksp', 
+                     ksp_type=PETSc.KSP.Type.CG, 
+                     pc_type=PETSc.PC.Type.FIELDSPLIT, 
+                     fieldsplit_type="additive",
+                     fieldsplit_ksp_type=PETSc.KSP.Type.CG,
+                     fieldsplit_pc_type=PETSc.PC.Type.LU, 
+                     rtol=1e-15, max_it=100000,
+                     ksp_view=False, monitor_residual=False):
     """
     Solve nested PETSc.Mat "Ax=b".
 
@@ -569,21 +598,40 @@ def solve_nested_mat(A, x, b, solver=None):
     A : nested PETSc.Mat
     x : nested PETSc.Vec
     b : nested PETSc.Vec
-    solver : None, 'ksp', PESTc.KSP, PETScLUSolver, PETScKrylovSolver. 
-        If None, use dolfin solver
+    solver : str, {"ksp", "direct"} or user defined solver, 
+        Default is "ksp", which is petsc4py PETSc KSP solver
+    ksp_type : str, default is "cg"
+        KSP solver type, for addtioner type, see PETSc.KSP.Type
+    pc_type : str, default is "fieldsplit"
+        PETSc preconditioner type, for additional preconditioner 
+        type, see PETSc.PC.Type
+    fieldsplit_type : str, default is "additive"
+        Only needed if preconditioner is "fieldsplit". {"additive", 
+        "multiplicative", "symmetric_multiplicative", "schur"}
+    fieldsplit_ksp_type : str, default is "cg"
+    fieldsplit_pc_type : str, default is "lu"
+    rtol : float, default is 1e-15
+    max_it : int, default is 100000
+    ksp_view : bool, default is False
+    monitor_residual : bool, default is False
     """
     if not isinstance(A, PETSC4PY_MATRIX):
         if mpirank == 0:
             raise TypeError("Type "+str(type(A))+" is not supported yet.")
-    if solver is None:
-        # Only works in parallel
-        # PARALLEL NOTE: PETSc error code 56
+
+    if solver == "direct":
+        # Mat type conversion only works in serial
         if A.type != 'seqaij':
             A.convert('seqaij')
         solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "mumps")
     elif solver == 'ksp':
-        # Works in parallel
-        ksp_solve(A, x, b)
+        # ksp solver works in parallel
+        ksp_solve(A, x, b, ksp_type=ksp_type, pc_type=pc_type, 
+                  fieldsplit_type=fieldsplit_type,
+                  fieldsplit_ksp_type=fieldsplit_ksp_type,
+                  fieldsplit_pc_type=fieldsplit_pc_type, 
+                  rtol=rtol, max_it=max_it, ksp_view=ksp_view, 
+                  monitor_residual=monitor_residual)
     else:
         solver.ksp().setOperators(A=A)
         solver.ksp().solve(b, x)
@@ -1002,16 +1050,14 @@ def eval_func(mesh, f, xi, allreduce=True):
         res = f(xi)
     else:
         if len(f.ufl_shape) > 0:
-            res = f.ufl_shape[0]*[0.0,]
+            res = np.zeros(f.ufl_shape[0])
         else:
             res = 0.
 
     if allreduce:
-        if pt_in_mesh_allgather.count(True) > 1:
-            mpi_op = pyMPI.MAX
-        else:
-            mpi_op = pyMPI.SUM
-        res = worldcomm.allreduce(res, op=mpi_op)
+        res = worldcomm.allreduce(res, op=pyMPI.SUM)\
+              /pt_in_mesh_allgather.count(True)
+
     return res
 
 

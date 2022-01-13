@@ -445,13 +445,40 @@ class NonMatchingCoupling(object):
 
         return self.A, self.b
 
-    def solve_linear_nonmatching_problem(self, solver=None):
+    def solve_linear_nonmatching_problem(self, solver='ksp', 
+                                ksp_type=PETSc.KSP.Type.CG, 
+                                pc_type=PETSc.PC.Type.FIELDSPLIT, 
+                                fieldsplit_type="additive",
+                                fieldsplit_ksp_type=PETSc.KSP.Type.CG,
+                                fieldsplit_pc_type=PETSc.PC.Type.LU, 
+                                rtol=1e-15, max_it=100000, ksp_view=False, 
+                                monitor_residual=False):
         """
         Solve the linear non-matching system.
 
         Parameters
         ----------
-        solver : {'KSP'}, optional, if None, use dolfin solver
+        solver : {'ksp', 'direct'}, or user defined solver. 
+            For 'ksp', the non-matching system will be solved by 
+            petsc4py PETSc KSP solver of type 'cg' with preconditioner
+            'fieldsplit' of type 'additive'. For 'direct', the system
+            is solved by dolfin ``solve``, but the LHS nest matrix is 
+            required to convert to type `seqaij`, which only works
+            in serial. Default is 'ksp'.
+        ksp_type : str, default is "cg"
+            KSP solver type, for additional type, see PETSc.KSP.Type
+        pc_type : str, default is "fieldsplit"
+            PETSc preconditioner type, for additional preconditioner 
+            type, see PETSc.PC.Type
+        fieldsplit_type : str, default is "additive"
+            Only needed if preconditioner is "fieldsplit". {"additive", 
+            "multiplicative", "symmetric_multiplicative", "schur"}
+        fieldsplit_ksp_type : str, default is "cg"
+        fieldsplit_pc_type : str, default is "lu"
+        rtol : float, default is 1e-15
+        max_it : int, default is 100000
+        ksp_view : bool, default is False
+        monitor_residual : bool, default is False
 
         Returns
         -------
@@ -465,7 +492,13 @@ class NonMatchingCoupling(object):
             u_list += [zero_petsc_vec(self.splines[i].M.size(1), 
                                       comm=self.splines[i].comm),]
         u = create_nested_PETScVec(u_list, comm=self.comm)
-        solve_nested_mat(A, u, -b, solver=solver)
+        solve_nested_mat(A, u, -b, solver=solver, 
+                        ksp_type=ksp_type, pc_type=pc_type, 
+                        fieldsplit_type=fieldsplit_type,
+                        fieldsplit_ksp_type=fieldsplit_ksp_type,
+                        fieldsplit_pc_type=fieldsplit_pc_type, 
+                        rtol=rtol, max_it=max_it, ksp_view=ksp_view, 
+                        monitor_residual=monitor_residual)
         
         for i in range(self.num_splines):
             self.splines[i].M.mat().mult(u_list[i], 
@@ -474,17 +507,47 @@ class NonMatchingCoupling(object):
             v2p(self.spline_funcs[i].vector()).assemble()
         return self.spline_funcs
 
-    def solve_nonlinear_nonmatching_problem(self, solver=None, ref_error=None,
-                                            rel_tol=1e-3, max_iter=20,
-                                            zero_mortar_funcs=True):
+    def solve_nonlinear_nonmatching_problem(self, solver=None, 
+                                ref_error=None, rtol=1e-3, max_it=20,
+                                zero_mortar_funcs=True, 
+                                ksp_type=PETSc.KSP.Type.CG, 
+                                pc_type=PETSc.PC.Type.FIELDSPLIT, 
+                                fieldsplit_type="additive",
+                                fieldsplit_ksp_type=PETSc.KSP.Type.CG,
+                                fieldsplit_pc_type=PETSc.PC.Type.LU, 
+                                ksp_rtol=1e-15, ksp_max_it=100000,
+                                ksp_view=False, ksp_monitor_residual=False):
         """
-        Solve the nonlinear non-matching system.
+        Solve the nonlinear non-matching system using Newton's method.
 
         Parameters
         ----------
-        solver : {'KSP'}, optional, if None, use dolfin solver
+        solver : {"ksp", "direct"} or user defined solver
+            The linear solver inside Newton's iteration, default is "ksp".
         ref_error : float, optional, default is None
-        rel_tol : float, optional, default is 1e-3
+        rtol : float, optional, default is 1e-3
+            Relative tolerance for Newton's iteration
+        max_it: int, optional, default is 20
+            Maximum iteration for Newton's iteration
+        zero_mortar_funcs : bool, optional, default is True
+            Set dolfin functions on mortar meshes to zero before the 
+            start of Newton's iteration, (helpful for convergence).
+        ksp_type : str, default is "cg"
+            KSP solver type, for additional type, see PETSc.KSP.Type
+        pc_type : str, default is "fieldsplit"
+            PETSc preconditioner type, for additional preconditioner 
+            type, see PETSc.PC.Type
+        fieldsplit_type : str, default is "additive"
+            Only needed if preconditioner is "fieldsplit". {"additive", 
+            "multiplicative", "symmetric_multiplicative", "schur"}
+        fieldsplit_ksp_type : str, default is "cg"
+        fieldsplit_pc_type : str, default is "lu"
+        ksp_rtol : float, default is 1e-15
+            Relative tolerance for PETSc KSP solver
+        ksp_max_it : int, default is 100000
+            Maximum iteration for PETSc KSP solver
+        ksp_view : bool, default is False
+        ksp_monitor_residual : bool, default is False
 
         Returns
         -------
@@ -499,7 +562,7 @@ class NonMatchingCoupling(object):
                             self.mortar_vars[i][j][k].interpolate(
                                                       Constant((0.,0.,0.)))
         
-        for newton_iter in range(max_iter+1):
+        for newton_iter in range(max_it+1):
 
             dRt_dut_FE, Rt_FE = self.assemble_nonmatching()
             A, b = self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
@@ -517,18 +580,18 @@ class NonMatchingCoupling(object):
                             .format(newton_iter, rel_norm))
                 sys.stdout.flush()
 
-            if rel_norm < rel_tol:
+            if rel_norm < rtol:
                 if MPI.rank(self.comm) == 0:
                     if mpirank == 0:
                         print("Newton's iteration finished in {} "
                               "iterations (relative tolerance: {})."
-                              .format(newton_iter, rel_tol))
+                              .format(newton_iter, rtol))
                 break
 
-            if newton_iter == max_iter:
+            if newton_iter == max_it:
                 if mpirank == 0:
                     raise StopIteration("Nonlinear solver failed to "
-                          "converge in {} iterations.".format(max_iter))
+                          "converge in {} iterations.".format(max_it))
 
             du_list = []
             du_IGA_list = []
@@ -538,7 +601,13 @@ class NonMatchingCoupling(object):
                                                comm=self.splines[i].comm)]
             du = create_nested_PETScVec(du_IGA_list, comm=self.comm)
 
-            solve_nested_mat(A, du, -b, solver=solver)
+            solve_nested_mat(A, du, -b, solver=solver,
+                    ksp_type=ksp_type, pc_type=pc_type, 
+                    fieldsplit_type=fieldsplit_type,
+                    fieldsplit_ksp_type=fieldsplit_ksp_type,
+                    fieldsplit_pc_type=fieldsplit_pc_type, 
+                    rtol=ksp_rtol, max_it=ksp_max_it, ksp_view=ksp_view, 
+                    monitor_residual=ksp_monitor_residual)
 
             for i in range(self.num_splines):
                 self.splines[i].M.mat().mult(du_IGA_list[i], 
@@ -555,6 +624,7 @@ class NonMatchingCoupling(object):
                             self.mortar_vars[i][j][k].vector())
 
         return self.spline_funcs
+
 
 class NonMatchingNonlinearProblem(NonlinearProblem):
     """
@@ -632,7 +702,7 @@ class NonMatchingNonlinearSolver:
 
         Parameters
         ----------
-        nonlinear_problem : instance of ``NonMatchingNonlinearProble``
+        nonlinear_problem : instance of ``NonMatchingNonlinearProblem``
         solver : PETSc SNES Solver
         """
         self.nonlinear_problem = nonlinear_problem
