@@ -437,19 +437,19 @@ class NonMatchingCoupling(object):
 
                 dRt_dut_IGA[i] += [dRm_dum_IGA_temp,]
 
-        self.b = create_nested_PETScVec(Rt_IGA, comm=self.comm)
-        self.A = create_nested_PETScMat(dRt_dut_IGA, comm=self.comm)
+        self.A_list = dRt_dut_IGA
+        self.b_list = Rt_IGA
 
-        # self.A_list = dRt_dut_IGA
-        # self.b_list = Rt_IGA
+        self.b = create_nest_PETScVec(Rt_IGA, comm=self.comm)
+        self.A = create_nest_PETScMat(dRt_dut_IGA, comm=self.comm)
 
         return self.A, self.b
 
-    def solve_linear_nonmatching_problem(self, solver='ksp', 
+    def solve_linear_nonmatching_problem(self, solver="direct", 
                                 ksp_type=PETSc.KSP.Type.CG, 
                                 pc_type=PETSc.PC.Type.FIELDSPLIT, 
                                 fieldsplit_type="additive",
-                                fieldsplit_ksp_type=PETSc.KSP.Type.CG,
+                                fieldsplit_ksp_type=PETSc.KSP.Type.PREONLY,
                                 fieldsplit_pc_type=PETSc.PC.Type.LU, 
                                 rtol=1e-15, max_it=100000, ksp_view=False, 
                                 monitor_residual=False):
@@ -461,10 +461,7 @@ class NonMatchingCoupling(object):
         solver : {'ksp', 'direct'}, or user defined solver. 
             For 'ksp', the non-matching system will be solved by 
             petsc4py PETSc KSP solver of type 'cg' with preconditioner
-            'fieldsplit' of type 'additive'. For 'direct', the system
-            is solved by dolfin ``solve``, but the LHS nest matrix is 
-            required to convert to type `seqaij`, which only works
-            in serial. Default is 'ksp'.
+            'fieldsplit' of type 'additive'. Default is 'direct'.
         ksp_type : str, default is "cg"
             KSP solver type, for additional type, see PETSc.KSP.Type
         pc_type : str, default is "fieldsplit"
@@ -485,35 +482,46 @@ class NonMatchingCoupling(object):
         self.spline_funcs : list of dolfin functions
         """
         dRt_dut_FE, Rt_FE = self.assemble_nonmatching()
-        A, b = self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
+        self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
 
-        u_list = []
+        if solver == "direct":
+            if mpisize == 1:
+                self.A.convert("seqaij")
+            else:
+                self.A = create_aijmat_from_nestmat(self.A, self.A_list, 
+                                                    comm=self.comm)
+
+        if solver == "ksp" and pc_type != PETSc.PC.Type.FIELDSPLIT:
+            self.A = create_aijmat_from_nestmat(self.A, self.A_list, 
+                                                comm=self.comm)
+
+        self.u_list = []
         for i in range(self.num_splines):
-            u_list += [zero_petsc_vec(self.splines[i].M.size(1), 
+            self.u_list += [zero_petsc_vec(self.splines[i].M.size(1), 
                                       comm=self.splines[i].comm),]
-        u = create_nested_PETScVec(u_list, comm=self.comm)
-        solve_nested_mat(A, u, -b, solver=solver, 
-                        ksp_type=ksp_type, pc_type=pc_type, 
-                        fieldsplit_type=fieldsplit_type,
-                        fieldsplit_ksp_type=fieldsplit_ksp_type,
-                        fieldsplit_pc_type=fieldsplit_pc_type, 
-                        rtol=rtol, max_it=max_it, ksp_view=ksp_view, 
-                        monitor_residual=monitor_residual)
+        self.u = create_nest_PETScVec(self.u_list, comm=self.comm)
+        solve_nest_mat(self.A, self.u, -self.b, solver=solver, 
+                       ksp_type=ksp_type, pc_type=pc_type, 
+                       fieldsplit_type=fieldsplit_type,
+                       fieldsplit_ksp_type=fieldsplit_ksp_type,
+                       fieldsplit_pc_type=fieldsplit_pc_type, 
+                       rtol=rtol, max_it=max_it, ksp_view=ksp_view, 
+                       monitor_residual=monitor_residual)
         
         for i in range(self.num_splines):
-            self.splines[i].M.mat().mult(u_list[i], 
+            self.splines[i].M.mat().mult(self.u_list[i], 
                                          self.spline_funcs[i].vector().vec())
             v2p(self.spline_funcs[i].vector()).ghostUpdate()
             v2p(self.spline_funcs[i].vector()).assemble()
         return self.spline_funcs
 
-    def solve_nonlinear_nonmatching_problem(self, solver=None, 
+    def solve_nonlinear_nonmatching_problem(self, solver="direct", 
                                 ref_error=None, rtol=1e-3, max_it=20,
                                 zero_mortar_funcs=True, 
                                 ksp_type=PETSc.KSP.Type.CG, 
                                 pc_type=PETSc.PC.Type.FIELDSPLIT, 
                                 fieldsplit_type="additive",
-                                fieldsplit_ksp_type=PETSc.KSP.Type.CG,
+                                fieldsplit_ksp_type=PETSc.KSP.Type.PREONLY,
                                 fieldsplit_pc_type=PETSc.PC.Type.LU, 
                                 ksp_rtol=1e-15, ksp_max_it=100000,
                                 ksp_view=False, ksp_monitor_residual=False):
@@ -523,7 +531,7 @@ class NonMatchingCoupling(object):
         Parameters
         ----------
         solver : {"ksp", "direct"} or user defined solver
-            The linear solver inside Newton's iteration, default is "ksp".
+            The linear solver inside Newton's iteration, default is "direct".
         ref_error : float, optional, default is None
         rtol : float, optional, default is 1e-3
             Relative tolerance for Newton's iteration
@@ -565,9 +573,20 @@ class NonMatchingCoupling(object):
         for newton_iter in range(max_it+1):
 
             dRt_dut_FE, Rt_FE = self.assemble_nonmatching()
-            A, b = self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
+            self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
 
-            current_norm = b.norm()
+            if solver == "direct":
+                if mpisize == 1:
+                    self.A.convert("seqaij")
+                else:
+                    self.A = create_aijmat_from_nestmat(self.A, self.A_list, 
+                                                        comm=self.comm)
+
+            if solver == "ksp" and pc_type != PETSc.PC.Type.FIELDSPLIT:
+                self.A = create_aijmat_from_nestmat(self.A, self.A_list, 
+                                                    comm=self.comm)
+
+            current_norm = self.b.norm()
 
             if newton_iter==0 and ref_error is None:
                 ref_error = current_norm
@@ -599,9 +618,9 @@ class NonMatchingCoupling(object):
                 du_list += [Function(self.splines[i].V),]
                 du_IGA_list += [zero_petsc_vec(self.splines[i].M.size(1), 
                                                comm=self.splines[i].comm)]
-            du = create_nested_PETScVec(du_IGA_list, comm=self.comm)
+            du = create_nest_PETScVec(du_IGA_list, comm=self.comm)
 
-            solve_nested_mat(A, du, -b, solver=solver,
+            solve_nest_mat(self.A, du, -self.b, solver=solver,
                     ksp_type=ksp_type, pc_type=pc_type, 
                     fieldsplit_type=fieldsplit_type,
                     fieldsplit_ksp_type=fieldsplit_ksp_type,
@@ -645,7 +664,7 @@ class NonMatchingNonlinearProblem(NonlinearProblem):
         for i in range(self.problem.num_splines):
             self.u_list += [zero_petsc_vec(self.problem.splines[i].M.size(1), 
                                          comm=self.problem.splines[i].comm),]
-        self.u = create_nested_PETScVec(self.u_list, comm=self.problem.comm)
+        self.u = create_nest_PETScVec(self.u_list, comm=self.problem.comm)
 
     def form(self, A, P, b, x):
         """

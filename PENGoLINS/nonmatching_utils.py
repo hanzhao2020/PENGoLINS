@@ -303,6 +303,7 @@ def zero_petsc_mat(row, col, mat_type=None,
     A : petsc4py.PETSc.Mat
     """
     A = PETSc.Mat(comm)
+    A.create(comm=comm)
     if mat_type is not None:
         mat_type.setType(mat_type)
     A.setSizes([row, col])
@@ -469,13 +470,15 @@ def dRdu2IGA(splines, dR_du):
             apply_bcs_mat(splines[i], dRdu_IGA[i][j], splines[j], diag=diag)
     return dRdu_IGA
 
-def create_nested_PETScVec(v_list, comm=worldcomm):
+def create_nest_PETScVec(v_list, comm=worldcomm):
     """
-    Create nested petsc4py.PETSc.Vec from ``v_list``.
+    Create nest petsc4py.PETSc.Vec from ``v_list``.
+    comm : mpi4py.MPI.Intracomm, optional
 
     Parameters
     ----------
     v_list : list of PETSc.Vecs
+    comm : mpi4py.MPI.Intracomm, optional
 
     Returns
     -------
@@ -487,13 +490,14 @@ def create_nested_PETScVec(v_list, comm=worldcomm):
     v.assemble()
     return v
 
-def create_nested_PETScMat(A_list, PREALLOC=500, comm=worldcomm):
+def create_nest_PETScMat(A_list, PREALLOC=500, comm=worldcomm):
     """
-    Create nested PETSc.Mat from ``A_list``.
+    Create nest PETSc.Mat from ``A_list``.
 
     Parameters
     ----------
     A_list : list of petsc4py.PETSc.Mats, rank 2
+    comm : mpi4py.MPI.Intracomm, optional
 
     Returns
     -------
@@ -507,10 +511,108 @@ def create_nested_PETScMat(A_list, PREALLOC=500, comm=worldcomm):
     A.assemble()
     return A
 
+def create_aijmat_from_nestmat(A, A_list, PREALLOC=500, comm=worldcomm):
+    """
+    Create an AIJ type PETSc matrix from given NEST PETSc 
+    matrix ``A`` and its list of submatrices ``A_list`` by
+    setting values from ``A`` to new matrix ``A_new``.
+
+    Parameters
+    ----------
+    A : petsc4py.PETSc.Mat of type nest
+    A_list : list of petsc4py.PETSc.Mats, rank 2
+    PREALLOC : int, optional, default is 500
+    comm : mpi4py.MPI.Intracomm, optional
+
+    Returns
+    -------
+    A_new: petsc4py.PETSc.Mat of type aij
+    """
+    if mpirank == 0:
+        print("Creating aij PETSc matrix from nest PETSc matrix ...")
+    A_size_row, A_size_col = A.getSizes()
+    A_range_row = A.getOwnershipRange()
+    A_range_col = A.getOwnershipRangeColumn()
+    A_range_col_allgather = comm.allgather(A_range_col)
+
+    A_sub_size_row_list = []
+    A_sub_size_col_list = []
+    A_sub_size_col_allgather_list = []
+    A_sub_range_row_list = []
+    A_sub_range_col_list = []
+    A_sub_range_col_allgather_list = []
+
+    for i in range(A.getNestSize()[0]):
+        sub_mat = A.getNestSubMatrix(i,i)
+        A_sub_size_row_list += [sub_mat.getSizes()[0],]
+        A_sub_size_col_list += [sub_mat.getSizes()[1],]
+        A_sub_size_col_allgather_list += \
+            [comm.allgather(A_sub_size_col_list[-1]),]
+        A_sub_range_row_list += [sub_mat.getOwnershipRange(),]
+        A_sub_range_col_list += [sub_mat.getOwnershipRangeColumn(),]
+        A_sub_range_col_allgather_list += \
+            [comm.allgather(A_sub_range_col_list[-1]),]
+
+    A_new = PETSc.Mat(comm)
+    A_new.createAIJ(A.getSizes(), comm=comm)
+    A_new.setPreallocationNNZ([PREALLOC, PREALLOC])
+    A_new.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
+    A_new.setUp()
+    A_new.assemble()
+
+    # Set values to A_new
+    ind_off_local_row = 0
+    ind_off_global_row = A_range_row[0]
+    ind_off_global_col = A_range_col[0]
+    ind_off_global_col_all = comm.allgather(ind_off_global_col)
+
+    for i in range(A.getNestSize()[0]):
+        ind_off_local_col = np.zeros(mpisize)
+        for j in range(A.getNestSize()[1]):
+            sub_mat_size_row = A_sub_size_row_list[i]
+            sub_mat_size_col = A_sub_size_col_list[j]
+            sub_mat_range_row = A_sub_range_row_list[i]
+            sub_mat_range_col = A_sub_size_col_list[j]
+            sub_mat_size_col_all = A_sub_size_col_allgather_list[j]
+            sub_mat_range_col_all = A_sub_range_col_allgather_list[j]
+
+            if A_list[i][j] is not None:
+                sub_mat = A_list[i][j]
+                mat_vals = sub_mat.getValues(np.arange(sub_mat_range_row[0], 
+                           sub_mat_range_row[1], dtype='int32'),
+                           np.arange(0, sub_mat_size_col[1], dtype='int32'))
+                mat_vals_subs = []
+                col_ind_subs = []
+                for k in range(mpisize):
+                    mat_vals_subs += [mat_vals[:,sub_mat_range_col_all[k][0]:
+                                                 sub_mat_range_col_all[k][1]]]
+                    col_ind_subs += [np.arange(ind_off_global_col_all[k] \
+                                    + ind_off_local_col[k],
+                                    sub_mat_size_col_all[k][0] \
+                                    + ind_off_global_col_all[k] \
+                                    + ind_off_local_col[k], dtype='int32')]
+
+                row_ind = np.arange(ind_off_local_row+ind_off_global_row, 
+                    sub_mat_size_row[0]+ind_off_local_row+ind_off_global_row, 
+                    dtype='int32')
+
+                for k in range(mpisize):
+                    A_new.setValues(row_ind, col_ind_subs[k], 
+                                    mat_vals_subs[k])
+
+            for k in range(mpisize):
+                ind_off_local_col[k] += sub_mat_size_col_all[k][0]
+       
+        ind_off_local_row += sub_mat_size_row[0]
+
+    A_new.setUp()
+    A_new.assemble()
+    return A_new
+
 def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG, 
               pc_type=PETSc.PC.Type.FIELDSPLIT, 
               fieldsplit_type="additive",
-              fieldsplit_ksp_type=PETSc.KSP.Type.CG,
+              fieldsplit_ksp_type=PETSc.KSP.Type.PREONLY,
               fieldsplit_pc_type=PETSc.PC.Type.LU, 
               rtol=1e-15, max_it=100000,
               ksp_view=False, monitor_residual=False):
@@ -537,7 +639,6 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG,
     ksp_view : bool, default is False
     monitor_residual : bool, default is False
     """
-    nest_size = A.getNestSize()[0]
     ksp = PETSc.KSP().create()
     ksp.setType(ksp_type)
     pc = ksp.getPC()
@@ -550,6 +651,7 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG,
     PETScOptions.set('pc_type', pc_type)
 
     if pc_type == PETSc.PC.Type.FIELDSPLIT:
+        nest_size = A.getNestSize()[0]
         PETScOptions.set('pc_type', 'fieldsplit')
         PETScOptions.set('pc_fieldsplit_type', 'additive')
         for i in range(nest_size):
@@ -582,22 +684,22 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG,
                   "iterations or smaller relative tolerance."
                   .format(ksp.getTolerances()[0], ksp.max_it))
 
-def solve_nested_mat(A, x, b, solver='ksp', 
-                     ksp_type=PETSc.KSP.Type.CG, 
-                     pc_type=PETSc.PC.Type.FIELDSPLIT, 
-                     fieldsplit_type="additive",
-                     fieldsplit_ksp_type=PETSc.KSP.Type.CG,
-                     fieldsplit_pc_type=PETSc.PC.Type.LU, 
-                     rtol=1e-15, max_it=100000,
-                     ksp_view=False, monitor_residual=False):
+def solve_nest_mat(A, x, b, solver="direct", 
+                   ksp_type=PETSc.KSP.Type.CG, 
+                   pc_type=PETSc.PC.Type.FIELDSPLIT, 
+                   fieldsplit_type="additive",
+                   fieldsplit_ksp_type=PETSc.KSP.Type.PREONLY,
+                   fieldsplit_pc_type=PETSc.PC.Type.LU, 
+                   rtol=1e-15, max_it=100000,
+                   ksp_view=False, monitor_residual=False):
     """
-    Solve nested PETSc.Mat "Ax=b".
+    Solve nest PETSc.Mat "Ax=b".
 
     Parameters
     ----------
-    A : nested PETSc.Mat
-    x : nested PETSc.Vec
-    b : nested PETSc.Vec
+    A : nest PETSc.Mat
+    x : nest PETSc.Vec
+    b : nest PETSc.Vec
     solver : str, {"ksp", "direct"} or user defined solver, 
         Default is "ksp", which is petsc4py PETSc KSP solver
     ksp_type : str, default is "cg"
@@ -620,9 +722,6 @@ def solve_nested_mat(A, x, b, solver='ksp',
             raise TypeError("Type "+str(type(A))+" is not supported yet.")
 
     if solver == "direct":
-        # Mat type conversion only works in serial
-        if A.type != 'seqaij':
-            A.convert('seqaij')
         solve(PETScMatrix(A), PETScVector(x), PETScVector(b), "mumps")
     elif solver == 'ksp':
         # ksp solver works in parallel

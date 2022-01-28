@@ -1,4 +1,6 @@
+from tIGAr.NURBS import *
 from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.igakit_utils import *
 
 # Geometry creation using igakit
 def create_roof_srf(num_el, p, R, angle_lim=[50,130], z_lim=[0,1]):
@@ -17,7 +19,7 @@ def create_roof_srf(num_el, p, R, angle_lim=[50,130], z_lim=[0,1]):
 # Extracted spline creation
 def create_spline(srf, num_field=3, BCs=[1,1], fix_z_node=False):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(worldcomm, num_field, spline_mesh)
 
     for field in range(0,2):
         scalar_spline = spline_generator.getScalarSpline(field)
@@ -59,7 +61,9 @@ L2 = 3*L/4
 L3 = L
 
 penalty_coefficient = 1.0e3
-print("Penalty coefficient:", penalty_coefficient)
+
+if MPI.rank(worldcomm) == 0:
+    print("Penalty coefficient:", penalty_coefficient)
 num_el = 8
 p = 3  # Spline order
 
@@ -96,7 +100,10 @@ bcs_list = [bc0]*3 + [bc1]*3 + [bc2]*3
 nurbs_srfs = []
 splines = []
 total_dofs = 0
-print("Creating geometry...")
+
+if MPI.rank(worldcomm) == 0:
+    print("Creating geometry...")
+
 for i in range(num_srf):
     nurbs_srfs += [create_roof_srf(spline_nels[i], p, R, 
         angle_lim=angle_lim_list[i], z_lim=z_lim_list[i]),]
@@ -109,12 +116,13 @@ for i in range(num_srf):
     else:
         splines += [create_spline(nurbs_srfs[i], BCs=bcs_list[i]),]
 
-print("Total DoFs:", total_dofs)
+if MPI.rank(worldcomm) == 0:
+    print("Total DoFs:", total_dofs)
 
-print("Starting analysis...")
+if MPI.rank(worldcomm) == 0:
+    print("Starting analysis...")
 # Create non-matching problem
-problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
-
+problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
 # Mortar meshes' parameters
 mapping_list = [[0,1],[1,2],[3,4],[4,5],[6,7],[7,8],
                 [0,3],[3,6],[1,4],[4,7],[2,5],[5,8]]
@@ -125,12 +133,11 @@ h_mortar_locs = [np.array([[0., 1.], [1., 1.]]),
                  np.array([[0., 0.], [1., 0.]])]
 v_mortar_locs = [np.array([[1., 0.], [1., 1.]]),
                  np.array([[0., 0.], [0., 1.]])]
-
 mortar_nels = []
 mortar_mesh_locations = []
 for j in range(num_interfaces):
-    mortar_nels += [spline_nels[mapping_list[j][0]]\
-                    +spline_nels[mapping_list[j][1]]]
+    mortar_nels += [3*(spline_nels[mapping_list[j][0]]\
+                    +spline_nels[mapping_list[j][1]])]
     if j < 6:
         mortar_mesh_locations += [v_mortar_locs]
     else:
@@ -141,7 +148,6 @@ problem.create_mortar_funcs('CG',1)
 problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
                             penalty_coefficient)
-
 source_terms = []
 residuals = []
 for i in range(len(splines)):
@@ -151,18 +157,23 @@ for i in range(len(splines)):
         problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
 problem.set_residuals(residuals)
 
-print("Solving linear non-matching problem...")
-problem.solve_linear_nonmatching_problem()
+if mpirank == 0:
+    print("Solving linear non-matching problem...")
+problem.solve_linear_nonmatching_problem(solver="direct")
 
 # Check the quantity of interest on both sides
 xi_list = [array([0.0, 0.5]), array([1.0, 0.5])]
 spline_inds = [3,5]
 for j in range(len(spline_inds)):
     xi = xi_list[j]
-    QoI_temp = -problem.spline_funcs[spline_inds[j]](xi)[1]\
-               /splines[spline_inds[j]].cpFuncs[3](xi)
-    print("Quantity of interest for patch {} = {:8.6f}"
-          " (Reference value = 0.3006).".format(j, QoI_temp))
+    disp_y_hom = eval_func(problem.splines[spline_inds[j]].mesh, 
+                       problem.spline_funcs[spline_inds[j]][1], xi)
+    w = eval_func(problem.splines[spline_inds[j]].mesh, 
+                  problem.splines[spline_inds[j]].cpFuncs[3], xi)
+    QoI_temp = -disp_y_hom/w
+    if mpirank == 0:
+        print("Quantity of interest for patch {} = {:10.8f}"
+              " (Reference value = 0.3006).".format(j, QoI_temp))
 
 # Compute von Mises stress
 print("Computing von Mises stresses...")
@@ -176,11 +187,13 @@ for i in range(problem.num_splines):
     von_Mises_top = spline_stress.vonMisesStress(h_th/2)
     von_Mises_top_proj = problem.splines[i].projectScalarOntoLinears(
                             von_Mises_top, lumpMass=False)
+    v2p(von_Mises_top_proj.vector()).ghostUpdate()
     von_Mises_tops += [von_Mises_top_proj]
     # von Mises stresses on bottom surfaces
     von_Mises_bot = spline_stress.vonMisesStress(-h_th/2)
     von_Mises_bot_proj = problem.splines[i].projectScalarOntoLinears(
                             von_Mises_bot, lumpMass=False)
+    v2p(von_Mises_bot_proj.vector()).ghostUpdate()
     von_Mises_bots += [von_Mises_bot_proj]
 
 SAVE_PATH = "./"
@@ -198,21 +211,21 @@ for i in range(len(splines)):
 
 """
 Visualization with Paraview:
- 
+
 1. Load output files for one extracted spline and apply an AppendAttributes 
-   filter to combine them.
+filter to combine them.
 2. Apply Calculator filter to the AppendAttributes with the formula
 
-    (F0_0/F0_3-coordsX)*iHat + (F0_1/F0_3-coordsY)*jHat + (F0_2/F0_3-coordsZ)*kHat
+(F0_0/F0_3-coordsX)*iHat + (F0_1/F0_3-coordsY)*jHat + (F0_2/F0_3-coordsZ)*kHat
 
-   for index=0 to get the undeformed configuration, then apply WarpByVector
-   filter to the Calculator with scale 1.
+for index=0 to get the undeformed configuration, then apply WarpByVector
+filter to the Calculator with scale 1.
 3. Apply another Calculator filter to WarpByVector with the formula
 
-    (u0_0/F0_3)*iHat + (u0_1/F0_3)*jHat + (u0_2/F0_3)*kHat
+(u0_0/F0_3)*iHat + (u0_1/F0_3)*jHat + (u0_2/F0_3)*kHat
 
-   for index=0 to get the displacement, then apply WarpByVector filter to the 
-   Calculator. 
+for index=0 to get the displacement, then apply WarpByVector filter to the 
+Calculator. 
 
 Note: for spline patches with index other than 0, replace ``u0`` and ``F0``
 by ``ui`` and ``Fi`` with corresponding index i. 
