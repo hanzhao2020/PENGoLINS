@@ -485,6 +485,9 @@ class NonMatchingCoupling(object):
         self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
 
         if solver == "direct":
+            # In parallel, create a new aij matrix that have the 
+            # same entries with original nest matrix to solve
+            # it using Dolfin direct solver.
             if mpisize == 1:
                 self.A.convert("seqaij")
             else:
@@ -492,6 +495,7 @@ class NonMatchingCoupling(object):
                                                     comm=self.comm)
 
         if solver == "ksp" and pc_type != PETSc.PC.Type.FIELDSPLIT:
+            # Only use "fieldsplit" preconditioner for nest matrix
             self.A = create_aijmat_from_nestmat(self.A, self.A_list, 
                                                 comm=self.comm)
 
@@ -500,13 +504,13 @@ class NonMatchingCoupling(object):
             self.u_list += [zero_petsc_vec(self.splines[i].M.size(1), 
                                       comm=self.splines[i].comm),]
         self.u = create_nest_PETScVec(self.u_list, comm=self.comm)
-        solve_nest_mat(self.A, self.u, -self.b, solver=solver, 
-                       ksp_type=ksp_type, pc_type=pc_type, 
-                       fieldsplit_type=fieldsplit_type,
-                       fieldsplit_ksp_type=fieldsplit_ksp_type,
-                       fieldsplit_pc_type=fieldsplit_pc_type, 
-                       rtol=rtol, max_it=max_it, ksp_view=ksp_view, 
-                       monitor_residual=monitor_residual)
+        solve_nonmatching_mat(self.A, self.u, -self.b, solver=solver, 
+                              ksp_type=ksp_type, pc_type=pc_type, 
+                              fieldsplit_type=fieldsplit_type,
+                              fieldsplit_ksp_type=fieldsplit_ksp_type,
+                              fieldsplit_pc_type=fieldsplit_pc_type, 
+                              rtol=rtol, max_it=max_it, ksp_view=ksp_view, 
+                              monitor_residual=monitor_residual)
         
         for i in range(self.num_splines):
             self.splines[i].M.mat().mult(self.u_list[i], 
@@ -620,13 +624,14 @@ class NonMatchingCoupling(object):
                                                comm=self.splines[i].comm)]
             du = create_nest_PETScVec(du_IGA_list, comm=self.comm)
 
-            solve_nest_mat(self.A, du, -self.b, solver=solver,
-                    ksp_type=ksp_type, pc_type=pc_type, 
-                    fieldsplit_type=fieldsplit_type,
-                    fieldsplit_ksp_type=fieldsplit_ksp_type,
-                    fieldsplit_pc_type=fieldsplit_pc_type, 
-                    rtol=ksp_rtol, max_it=ksp_max_it, ksp_view=ksp_view, 
-                    monitor_residual=ksp_monitor_residual)
+            solve_nonmatching_mat(self.A, du, -self.b, solver=solver,
+                                  ksp_type=ksp_type, pc_type=pc_type, 
+                                  fieldsplit_type=fieldsplit_type,
+                                  fieldsplit_ksp_type=fieldsplit_ksp_type,
+                                  fieldsplit_pc_type=fieldsplit_pc_type, 
+                                  rtol=ksp_rtol, max_it=ksp_max_it, 
+                                  ksp_view=ksp_view, 
+                                  monitor_residual=ksp_monitor_residual)
 
             for i in range(self.num_splines):
                 self.splines[i].M.mat().mult(du_IGA_list[i], 

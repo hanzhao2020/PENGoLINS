@@ -511,7 +511,8 @@ def create_nest_PETScMat(A_list, PREALLOC=500, comm=worldcomm):
     A.assemble()
     return A
 
-def create_aijmat_from_nestmat(A, A_list, PREALLOC=500, comm=worldcomm):
+def create_aijmat_from_nestmat(A, A_list, PREALLOC=500, 
+                               csr=True, comm=worldcomm):
     """
     Create an AIJ type PETSc matrix from given NEST PETSc 
     matrix ``A`` and its list of submatrices ``A_list`` by
@@ -522,6 +523,9 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500, comm=worldcomm):
     A : petsc4py.PETSc.Mat of type nest
     A_list : list of petsc4py.PETSc.Mats, rank 2
     PREALLOC : int, optional, default is 500
+    csr : bool, optional, default is True
+        If csr is True, get values from submatrices and 
+        set values to global matrix in csr format.
     comm : mpi4py.MPI.Intracomm, optional
 
     Returns
@@ -529,12 +533,20 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500, comm=worldcomm):
     A_new: petsc4py.PETSc.Mat of type aij
     """
     if mpirank == 0:
-        print("Creating aij PETSc matrix from nest PETSc matrix ...")
+        if csr:
+            print("Creating aij PETSc matrix from nest PETSc matrix "
+                  "in csr format ...")
+        else:
+            print("Creating aij PETSc matrix from nest PETSc matrix "
+                  "in dense format ...")
+
+    # Get information of global nest matrix
     A_size_row, A_size_col = A.getSizes()
     A_range_row = A.getOwnershipRange()
     A_range_col = A.getOwnershipRangeColumn()
     A_range_col_allgather = comm.allgather(A_range_col)
 
+    # Get information of submatrices
     A_sub_size_row_list = []
     A_sub_size_col_list = []
     A_sub_size_col_allgather_list = []
@@ -553,6 +565,7 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500, comm=worldcomm):
         A_sub_range_col_allgather_list += \
             [comm.allgather(A_sub_range_col_list[-1]),]
 
+    # Create new aij global matrix
     A_new = PETSc.Mat(comm)
     A_new.createAIJ(A.getSizes(), comm=comm)
     A_new.setPreallocationNNZ([PREALLOC, PREALLOC])
@@ -572,37 +585,87 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500, comm=worldcomm):
             sub_mat_size_row = A_sub_size_row_list[i]
             sub_mat_size_col = A_sub_size_col_list[j]
             sub_mat_range_row = A_sub_range_row_list[i]
-            sub_mat_range_col = A_sub_size_col_list[j]
+            sub_mat_range_col = A_sub_range_col_list[j]
             sub_mat_size_col_all = A_sub_size_col_allgather_list[j]
             sub_mat_range_col_all = A_sub_range_col_allgather_list[j]
 
             if A_list[i][j] is not None:
                 sub_mat = A_list[i][j]
-                mat_vals = sub_mat.getValues(np.arange(sub_mat_range_row[0], 
-                           sub_mat_range_row[1], dtype='int32'),
-                           np.arange(0, sub_mat_size_col[1], dtype='int32'))
-                mat_vals_subs = []
-                col_ind_subs = []
-                for k in range(mpisize):
-                    mat_vals_subs += [mat_vals[:,sub_mat_range_col_all[k][0]:
-                                                 sub_mat_range_col_all[k][1]]]
-                    col_ind_subs += [np.arange(ind_off_global_col_all[k] \
-                                    + ind_off_local_col[k],
-                                    sub_mat_size_col_all[k][0] \
-                                    + ind_off_global_col_all[k] \
-                                    + ind_off_local_col[k], dtype='int32')]
 
-                row_ind = np.arange(ind_off_local_row+ind_off_global_row, 
-                    sub_mat_size_row[0]+ind_off_local_row+ind_off_global_row, 
-                    dtype='int32')
+                if csr:
+                    # Get and set values in csr format
+                    mat_indptr, mat_indices, mat_vals_csr = \
+                        sub_mat.getValuesCSR()
+                    mat_indices_global = mat_indices.copy()
 
-                for k in range(mpisize):
-                    A_new.setValues(row_ind, col_ind_subs[k], 
-                                    mat_vals_subs[k])
-
-            for k in range(mpisize):
-                ind_off_local_col[k] += sub_mat_size_col_all[k][0]
-       
+                    for col_range_iter in range(mpisize):
+                        # Indices in current column ownership range
+                        ind_right = np.where(mat_indices >= 
+                            sub_mat_range_col_all[col_range_iter][0])
+                        ind_left = np.where(mat_indices < 
+                            sub_mat_range_col_all[col_range_iter][1])
+                        ind_int = np.intersect1d(ind_right, ind_left)
+                        # Indices offset
+                        ind_off_local_col_temp \
+                            = ind_off_local_col[col_range_iter]
+                        ind_off_global_col_temp \
+                            = ind_off_global_col_all[col_range_iter]
+                        ind_off_zero = \
+                            -sub_mat_range_col_all[col_range_iter][0]
+                        # Indices in global matrix
+                        mat_indices_global[ind_int] = mat_indices[ind_int]   \
+                                                    + ind_off_local_col_temp \
+                                                    + ind_off_global_col_temp\
+                                                    + ind_off_zero
+                    # Create indptr in global level
+                    row_ind = np.arange(ind_off_local_row+ind_off_global_row, 
+                                        ind_off_local_row+ind_off_global_row \
+                                        +sub_mat_size_row[0])
+                    mat_indptr_pre = np.zeros(row_ind[0]-A_range_row[0], 
+                                              dtype='int32')
+                    mat_indptr_post = np.ones(A_range_row[-1]-row_ind[-1]-1, 
+                                              dtype='int32')*mat_indptr[-1]
+                    mat_indptr_full = np.concatenate([mat_indptr_pre, 
+                        mat_indptr, mat_indptr_post], dtype='int32')
+                    # Set values in csr format
+                    A_new.setValuesCSR(mat_indptr_full, mat_indices_global, 
+                                       mat_vals_csr)
+                else:
+                    # Get and set values in dense format
+                    sub_ind_row = np.arange(sub_mat_range_row[0], 
+                                  sub_mat_range_row[1], dtype='int32')
+                    sub_ind_col = np.arange(0, sub_mat_size_col[1], 
+                                            dtype='int32')
+                    mat_vals = sub_mat.getValues(sub_ind_row, sub_ind_col)
+                    # Segment submatrix according to column ownership range
+                    # and create column indices in global level
+                    mat_vals_subs = []
+                    col_ind_subs = []
+                    for col_range_iter in range(mpisize):
+                        mat_vals_subs += [mat_vals[:,
+                            sub_mat_range_col_all[col_range_iter][0]:
+                            sub_mat_range_col_all[col_range_iter][1]]]
+                        col_ind_subs += [np.arange(
+                            ind_off_global_col_all[col_range_iter] \
+                            + ind_off_local_col[col_range_iter],
+                            ind_off_global_col_all[col_range_iter] \
+                            + ind_off_local_col[col_range_iter] \
+                            + sub_mat_size_col_all[col_range_iter][0], 
+                            dtype='int32')]
+                    # Create row indices for submatrix in global level
+                    row_ind = np.arange(
+                              ind_off_local_row + ind_off_global_row, 
+                              ind_off_local_row + ind_off_global_row \
+                              + sub_mat_size_row[0], dtype='int32')
+                    # Set values in dense format
+                    for col_range_iter in range(mpisize):
+                        A_new.setValues(row_ind, col_ind_subs[col_range_iter], 
+                                        mat_vals_subs[col_range_iter])
+            # Update column indices offset 
+            for col_range_iter in range(mpisize):
+                ind_off_local_col[col_range_iter] \
+                    += sub_mat_size_col_all[col_range_iter][0]
+        # Update row indices offset
         ind_off_local_row += sub_mat_size_row[0]
 
     A_new.setUp()
@@ -684,16 +747,16 @@ def ksp_solve(A, x, b, ksp_type=PETSc.KSP.Type.CG,
                   "iterations or smaller relative tolerance."
                   .format(ksp.getTolerances()[0], ksp.max_it))
 
-def solve_nest_mat(A, x, b, solver="direct", 
-                   ksp_type=PETSc.KSP.Type.CG, 
-                   pc_type=PETSc.PC.Type.FIELDSPLIT, 
-                   fieldsplit_type="additive",
-                   fieldsplit_ksp_type=PETSc.KSP.Type.PREONLY,
-                   fieldsplit_pc_type=PETSc.PC.Type.LU, 
-                   rtol=1e-15, max_it=100000,
-                   ksp_view=False, monitor_residual=False):
+def solve_nonmatching_mat(A, x, b, solver="direct", 
+                          ksp_type=PETSc.KSP.Type.CG, 
+                          pc_type=PETSc.PC.Type.FIELDSPLIT, 
+                          fieldsplit_type="additive",
+                          fieldsplit_ksp_type=PETSc.KSP.Type.PREONLY,
+                          fieldsplit_pc_type=PETSc.PC.Type.LU, 
+                          rtol=1e-15, max_it=100000,
+                          ksp_view=False, monitor_residual=False):
     """
-    Solve nest PETSc.Mat "Ax=b".
+    Solve system "Ax=b", where ``A`` is the LHS non-matching matrix.
 
     Parameters
     ----------
@@ -732,6 +795,7 @@ def solve_nest_mat(A, x, b, solver="direct",
                   rtol=rtol, max_it=max_it, ksp_view=ksp_view, 
                   monitor_residual=monitor_residual)
     else:
+        # Keep an option for user customized solver
         solver.ksp().setOperators(A=A)
         solver.ksp().solve(b, x)
         solver.ksp().reset()

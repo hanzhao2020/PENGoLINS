@@ -310,7 +310,8 @@ def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control,
         if metadata is not None:
             dx_m = dx(domain=mortar_mesh, metadata=metadata)
         else:
-            dx_m = dx(domain=mortar_mesh, metadata={"quadrature_degree":2})
+            dx_m = dx(domain=mortar_mesh, metadata={'quadrature_degree': 0, 
+                                          'quadrature_scheme': 'vertex'})
 
     line_Jacobian = compute_line_Jacobian(X2)
     if line_Jacobian == 0.:
