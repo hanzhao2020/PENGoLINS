@@ -870,7 +870,7 @@ class OCCPreprocessing(object):
                             self.intersections_length += [curve_length(
                                 bs_intersection.intersections[k])]
                             self.mortar_nels += [np.max([
-                                min_mortar_nel*mortar_refine,
+                                int(min_mortar_nel*mortar_refine),
                                 ceil(self.intersections_length[-1]/np.min(
                                 [self.avg_mesh_sizes[i], 
                                 self.avg_mesh_sizes[j]])*mortar_refine)]),]

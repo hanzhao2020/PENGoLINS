@@ -311,9 +311,6 @@ class NonMatchingCoupling(object):
             R_FE += [v2p(R_assemble),]
             dR_du_FE += [m2p(dR_du_assemble),]
 
-        # self.dR_du_FE = dR_du_FE
-        # self.R_FE = R_FE
-
         # Step 2: assemble non-matching contributions
         # Create empty lists for non-matching contributions
         Rm_FE = [None for i1 in range(self.num_splines)]
@@ -369,9 +366,6 @@ class NonMatchingCoupling(object):
                         dRm_dum_FE[self.mapping_list[i][j]]\
                             [self.mapping_list[i][k]] = dRm_dum[j][k]
 
-        # self.dRm_dum_FE = dRm_dum_FE
-        # self.Rm_FE = Rm_FE
-
         # Step 3: add spline residuals and non-matching contribution together
         for i in range(self.num_splines):
             if Rm_FE[i] is not None:
@@ -396,6 +390,11 @@ class NonMatchingCoupling(object):
                     elif dRm_dum_FE[i][j] is not None \
                         and Kcs[i][j] is not None:
                         dRm_dum_FE[i][j] += Kcs[i][j]
+
+        # self.dR_du_FE = dR_du_FE
+        # self.R_FE = R_FE
+        # self.dRm_dum_FE = dRm_dum_FE
+        # self.Rm_FE = Rm_FE
 
         return dRm_dum_FE, Rm_FE
 
@@ -481,6 +480,9 @@ class NonMatchingCoupling(object):
         -------
         self.spline_funcs : list of dolfin functions
         """
+        for i in range(self.num_splines):
+            self.spline_funcs[i].vector().zero()
+
         dRt_dut_FE, Rt_FE = self.assemble_nonmatching()
         self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
 
