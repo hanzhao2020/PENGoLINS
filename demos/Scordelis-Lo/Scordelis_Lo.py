@@ -11,9 +11,9 @@ def create_roof_srf(num_el, p, R, angle_lim=[50,130], z_lim=[0,1]):
     deg1, deg2 = S.degree
     S.elevate(0,p-deg1)
     S.elevate(1,p-deg2)
-    newKnots = np.linspace(0,1,num_el+1)[1:-1]
-    S.refine(0,newKnots)
-    S.refine(1,newKnots)
+    new_knots = np.linspace(0,1,num_el+1)[1:-1]
+    S.refine(0,new_knots)
+    S.refine(1,new_knots)
     return S
 
 # Extracted spline creation
@@ -30,7 +30,7 @@ def create_spline(srf, num_field=3, BCs=[1,1], fix_z_node=False):
                 spline_generator.addZeroDofs(field, side_dofs)
 
     if fix_z_node:
-        # Pin z displacement for one control point to eliminate rigid mode
+        # Pin z displacement for one control point to eliminate rigid mode.
         field = 2
         spline_generator.addZeroDofs(field, [0,])
 
@@ -38,33 +38,28 @@ def create_spline(srf, num_field=3, BCs=[1,1], fix_z_node=False):
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
-# Parameters for patch 1 and 2
+# Geometric and material paramters
 L = 50.0
 R = 25.0
 theta = 40.0 # in degrees
 h_th = Constant(0.25) # thickness
 E = Constant(4.32e8)
 nu = Constant(0.0)
-arealForceDensity = Constant(90.0)
-f = as_vector([Constant(0.0), -arealForceDensity, Constant(0.0)])
+areal_force_density = Constant(90.0)
+f = as_vector([Constant(0.0), -areal_force_density, Constant(0.0)])
 QoI_ref = 0.3006
 num_srf = 9
 
-angle0 = 50
-angle1 = 80
-angle2 = 100
-angle3 = 130
-
-L0 = 0
-L1 = L/4
-L2 = 3*L/4
-L3 = L
+angles = [50, 80, 100, 130]  # Central angles in degree
+angle_lim_list = [angles[0:2], angles[1:3], angles[2:4]]*3
+z_lims = [0, L/4, 3*L/4, L]
+z_lim_list = [z_lims[0:2]]*3 + [z_lims[1:3]]*3 + [z_lims[2:4]]*3
 
 penalty_coefficient = 1.0e3
 
 if MPI.rank(worldcomm) == 0:
     print("Penalty coefficient:", penalty_coefficient)
-num_el = 8
+num_el = 6
 p = 3  # Spline order
 
 # Number of elements for splines in one side
@@ -77,19 +72,9 @@ num_el5 = num_el + 3
 num_el6 = num_el - 1
 num_el7 = num_el
 num_el8 = num_el - 2
-spline_nels = [num_el0, num_el1, num_el2, num_el3, num_el4, 
-               num_el5, num_el6, num_el7, num_el8]
-
-# Geometry parameters for NURBS patches
-angle_lim0 = [angle0,angle1]
-angle_lim1 = [angle1,angle2]
-angle_lim2 = [angle2,angle3]
-angle_lim_list = [angle_lim0, angle_lim1, angle_lim2]*3
-
-z_lim0 = [L0,L1]
-z_lim1 = [L1,L2]
-z_lim2 = [L2,L3]
-z_lim_list = [z_lim0]*3 + [z_lim1]*3 + [z_lim2]*3
+spline_nels = [num_el0, num_el1, num_el2, 
+               num_el3, num_el4, num_el5, 
+               num_el6, num_el7, num_el8]
 
 # Dirichlet BCs
 bc0 = [1,0]
@@ -172,8 +157,8 @@ for j in range(len(spline_inds)):
                   problem.splines[spline_inds[j]].cpFuncs[3], xi)
     QoI_temp = -disp_y_hom/w
     if mpirank == 0:
-        print("Quantity of interest for patch {} = {:10.8f}"
-              " (Reference value = 0.3006).".format(j, QoI_temp))
+        print("Quantity of interest for patch {} = {:10.8f} (Reference "
+              "value = {}).".format(spline_inds[j], QoI_temp, QoI_ref))
 
 # Compute von Mises stress
 print("Computing von Mises stresses...")
@@ -197,8 +182,8 @@ for i in range(problem.num_splines):
     von_Mises_bots += [von_Mises_bot_proj]
 
 SAVE_PATH = "./"
-for i in range(len(splines)):
-    save_results(splines[i], problem.spline_funcs[i], i, 
+for i in range(problem.num_splines):
+    save_results(problem.splines[i], problem.spline_funcs[i], i, 
                 save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
     von_Mises_tops[i].rename("von_Mises_top_"+str(i), 
                              "von_Mises_top_"+str(i))

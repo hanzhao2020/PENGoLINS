@@ -140,7 +140,7 @@ v_mortar_locs = [np.array([[1., 0.], [1., 1.]]),
 mortar_nels = []
 mortar_mesh_locations = []
 for j in range(num_interfaces):
-    mortar_nels += [2*(spline_nels[mapping_list[j][0]]\
+    mortar_nels += [3*(spline_nels[mapping_list[j][0]]\
                     +spline_nels[mapping_list[j][1]])]
     if j < 6:
         mortar_mesh_locations += [v_mortar_locs]
@@ -189,8 +189,8 @@ for j in range(len(spline_inds)):
 ```
 The printed QoI in this benchmark test:
 ```
-Quantity of interest for patch 3 = 0.30061630 (Reference value = 0.3006).
-Quantity of interest for patch 5 = 0.30061106 (Reference value = 0.3006).
+Quantity of interest for patch 3 = 0.30060742 (Reference value = 0.3006).
+Quantity of interest for patch 5 = 0.30060117 (Reference value = 0.3006).
 ```
 It's recommended to use ParaView for results visualization. The solutions can be saved to pvd files and rendered by ParaView.
 ```python
