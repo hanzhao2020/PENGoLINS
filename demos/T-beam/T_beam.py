@@ -1,7 +1,9 @@
+from tIGAr.NURBS import *
 from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.igakit_utils import *
 import matplotlib.pyplot as plt
 
-def create_surf(pts, num_el0, num_el1,p):
+def create_surf(pts, num_el0, num_el1, p):
     knots0 = np.linspace(0,1,num_el0+1)[1:-1]
     knots1 = np.linspace(0,1,num_el1+1)[1:-1]
     L1 = line(pts[0],pts[1])
@@ -16,13 +18,13 @@ def create_surf(pts, num_el0, num_el1,p):
 
 def create_spline(srf, num_field, BCs=[0,1]):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(worldcomm, num_field, spline_mesh)
 
     for field in range(num_field):
         scalar_spline = spline_generator.getScalarSpline(field)
         for para_direction in range(2):
             if BCs[para_direction] == 1:
-                side = 0 # only consider fixing the 0 side
+                side = 0  # Only consider fixing the 0 side
                 side_dofs = scalar_spline.getSideDofs(para_direction, 
                                                       side, nLayers=1)
                 spline_generator.addZeroDofs(field, side_dofs)
@@ -59,7 +61,7 @@ theta_twist_list = []
 for penalty_coefficient in pc_list:
 # for num_el in num_el_list:
 
-    num_el = 16
+    num_el = 10
     # penalty_coefficient = 1e3
     print("Number of elements:", num_el)
     print("Penalty coefficient:", penalty_coefficient)
@@ -76,9 +78,9 @@ for penalty_coefficient in pc_list:
     spline1 = create_spline(srf1, num_field, BCs=[0,1])
 
     splines = [spline0, spline1]
-    problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
+    problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
 
-    mortar_nels = [2*num_el0]
+    mortar_nels = [2*num_el1]
     problem.create_mortar_meshes(mortar_nels)
     problem.create_mortar_funcs('CG',1)
     problem.create_mortar_funcs_derivative('CG',1)
@@ -179,9 +181,9 @@ for penalty_coefficient in pc_list:
     print("")
 
 SAVE_PATH = "./"
-for i in range(len(splines)):
-    save_results(splines[i], problem.spline_funcs[i], i, 
-        save_path=SAVE_PATH, save_cpfuncs=True, comm=selfcomm)
+for i in range(problem.num_splines):
+    save_results(problem.splines[i], problem.spline_funcs[i], i, 
+        save_path=SAVE_PATH, save_cpfuncs=True, comm=problem.comm)
 
 if len(pc_list) > 1:
     # # Plot angle w.r.t. the penalty coefficient
