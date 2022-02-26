@@ -76,7 +76,7 @@ problem.mortar_meshes_setup(preprocessor.mapping_list,
 ```
 The ``int`` object ``penalty_coefficient`` is the problem-independent, dimensionless penalty coefficient, which is used to calculate the penalty parameters.
 
-Now, we can define the nonlinear residual for each spline patch using the St. Venant--Krichhoff constitutive model and pass them to the instance ``problem``. For shell structure under self weight as an example (assume self weight is along with z-direction):
+Now, we can define the nonlinear residual for each spline patch using the St. Venant--Kirchhoff constitutive model and pass them to the instance ``problem``. For shell structure under self weight as an example (assume self weight is along with z-direction):
 ```python
 areal_force_density = Constant(90.0)
 f = as_vector([Constant(0.0), Constant(0.0), -areal_force_density])

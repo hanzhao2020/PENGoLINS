@@ -9,14 +9,14 @@ This demo solves the Scordelis-Lo roof under self-weight, the definition of the 
 <p align="center">
   <img src="../../assets/figures/Scordelis_Lo_geometry.png" title="Scordelis-Lo geometry" width="450">
 </p>
-For the first step, importing related libraries. We use [igakit](https://bitbucket.org/dalcinl/igakit/src/master/) to create the simple surface geometries.
+To begin with, importing related libraries. We use [igakit](https://bitbucket.org/dalcinl/igakit/src/master/) to create the simple surface geometries.
 
 ```python
 from tIGAr.NURBS import *
 from PENGoLINS.nonmatching_coupling import *
 from PENGoLINS.igakit_utils import *
 ```
-Then define geometric paramters.
+Then define geometric parameters.
 ```python
 # Define geometric parameters
 num_srf = 9  # Number of spline patches
@@ -147,7 +147,7 @@ for j in range(num_interfaces):
     else:
         mortar_mesh_locations += [h_mortar_locs]
 ```
-Create mortar meshes and set up coupling information. In pratical applications, the required arguments ``mortar_nels``, ``mapping_list``, and ``mortar_mesh_locations`` would be generated automatically by PENGoLINS preprocessor.
+Create mortar meshes and set up coupling information. In practical applications, the required arguments ``mortar_nels``, ``mapping_list``, and ``mortar_mesh_locations`` would be generated automatically by the PENGoLINS preprocessor.
 ```python
 problem.create_mortar_meshes(mortar_nels)
 problem.create_mortar_funcs('CG',1)
@@ -170,7 +170,7 @@ Finally, we can solve the linearized Scordelis-Lo roof problem. The default solv
 ```python
 problem.solve_linear_nonmatching_problem(solver="direct")
 ```
-To verify the results, we print out the quantity of interest (QoI), which is the vertical displacement at the midpoint point on the free edge, and compare it with reference value 0.3006.
+To verify the results, we print out the quantity of interest (QoI), which is the vertical displacement at the midpoint point on the free edge, and compare it with the reference value 0.3006.
 ```python
 # Check the quantity of interest on both free edges
 xi_list = [array([0.0, 0.5]), array([1.0, 0.5])]

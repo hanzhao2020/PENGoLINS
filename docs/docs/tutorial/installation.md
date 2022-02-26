@@ -16,7 +16,7 @@ To install PENGoLINS, a list of dependencies have to be installed beforehand.
 
 3. IGA Python library [tIGAr](https://github.com/david-kamensky/tIGAr) can be installed based on [here](https://github.com/david-kamensky/tIGAr/blob/master/README.md).
 
-4. The Python module for isogeometric Kirchoff--Love shell [ShNAPr](https://github.com/david-kamensky/ShNAPr) is required.
+4. The Python module for isogeometric Kirchhoff--Love shell [ShNAPr](https://github.com/david-kamensky/ShNAPr) is required.
 
 5. Leveraging geometry kernel requires [pythonOCC](https://github.com/tpaviot/pythonocc-core), whose installation instruction can be found [here](https://github.com/tpaviot/pythonocc-core/blob/master/INSTALL.md).
 
