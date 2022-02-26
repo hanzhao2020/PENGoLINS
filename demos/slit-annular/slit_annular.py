@@ -1,7 +1,6 @@
+from tIGAr.NURBS import *
 from PENGoLINS.nonmatching_coupling import *
-
-SAVE_PATH = "./"
-# SAVE_PATH = "/home/han/Documents/test_results/"
+from PENGoLINS.igakit_utils import *
 
 def create_srf(num_el_r, num_el_alpha, p=3, Ri=6, Ro=10, angle_lim=[0,90]):
     angle = (math.radians(angle_lim[0]), math.radians(angle_lim[1]))
@@ -19,7 +18,7 @@ def create_srf(num_el_r, num_el_alpha, p=3, Ri=6, Ro=10, angle_lim=[0,90]):
 
 def create_spline(srf, num_field=3, BCs=[0,0], fix_z_node=False):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(worldcomm, num_field, spline_mesh)
 
     for field in range(3):
         scalar_spline = spline_generator.getScalarSpline(field)
@@ -35,8 +34,9 @@ def create_spline(srf, num_field=3, BCs=[0,0], fix_z_node=False):
     return spline
 
 p = 3
-num_el = 6
 num_srfs = 4
+num_el = 8
+num_els = [num_el, num_el-1, num_el-2, num_el-1]
 
 E = Constant(21e6)
 nu = Constant(0.0)
@@ -50,17 +50,13 @@ penalty_coefficient = 1.0e3
 
 nurbs_srfs = []
 splines = []
-BCs_list = [None, None, None, [0,1]]
-mortar_nels = []
+BCs_list = [[0,0], [0,0], [0,0], [0,1]]
 
 for i in range(num_srfs):
-    nurbs_srfs += [create_srf(num_el+i, num_el*2+i, 
+    nurbs_srfs += [create_srf(num_els[i], num_els[i]*2, 
                               angle_lim=[360/num_srfs*i, 
                                          360/num_srfs*(i+1)])]
-    if BCs_list[i] is not None:
-        splines += [create_spline(nurbs_srfs[-1], BCs=BCs_list[i])]
-    else:
-        splines += [create_spline(nurbs_srfs[-1])]
+    splines += [create_spline(nurbs_srfs[-1], BCs=BCs_list[i])]
 
 total_dofs = 0
 for i in range(num_srfs):
@@ -68,8 +64,9 @@ for i in range(num_srfs):
                *nurbs_srfs[i].control.shape[1]*3
 print("Total DoFs:", total_dofs)
 print("Penalty coefficient:", penalty_coefficient)
+
 print("Starting analysis...")
-problem = NonMatchingCoupling(splines, E, h_th, nu, comm=selfcomm)
+problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
 
 mapping_list = [[0,1], [1,2], [2,3]]
 num_mortar_mesh = len(mapping_list)
@@ -80,7 +77,7 @@ v_mortar_locs = [np.array([[1., 0.], [1., 1.]]),
                  np.array([[0., 0.], [0., 1.]])]
 
 for i in range(num_mortar_mesh):
-    mortar_nels += [(num_el+i+1)*2,]
+    mortar_nels += [num_els[i]*2,]
     mortar_mesh_locations += [v_mortar_locs,]
 
 problem.create_mortar_meshes(mortar_nels)
@@ -103,6 +100,7 @@ spline_boundaries1.set_all(0)
 left.mark(spline_boundaries1, 1)
 problem.splines[load_srf_ind].ds.setMarkers(markers=spline_boundaries1)
 
+SAVE_PATH = "./"
 u_file_names = []
 u_files = []
 F_file_names = []
@@ -115,14 +113,14 @@ for i in range(num_srfs):
     for j in range(3):
         u_file_names[i] += [SAVE_PATH+"results/"+"u"+str(i)
                             +"_"+str(j)+"_file.pvd",]
-        u_files[i] += [File(selfcomm, u_file_names[i][j]),]
+        u_files[i] += [File(problem.comm, u_file_names[i][j]),]
         F_file_names[i] += [SAVE_PATH+"results/"+"F"+str(i)
                             +"_"+str(j)+"_file.pvd",]
-        F_files[i] += [File(selfcomm, F_file_names[i][j]),]
+        F_files[i] += [File(problem.comm, F_file_names[i][j]),]
         if j == 2:
             F_file_names[i] += [SAVE_PATH+"results/"+"F"
                                 +str(i)+"_3_file.pvd",]
-            F_files[i] += [File(selfcomm, F_file_names[i][3]),]
+            F_files[i] += [File(problem.comm, F_file_names[i][3]),]
 
 WA_list = []
 WB_list = []
@@ -170,8 +168,7 @@ for nonlinear_test_iter in range(load_step):
     problem.set_residuals(residuals)
     
     print("Solving nonlinear non-matching system...")
-    soln = problem.solve_nonlinear_nonmatching_problem(rel_tol=1e-2, 
-                                                       max_iter=100)
+    soln = problem.solve_nonlinear_nonmatching_problem(rtol=1e-2, max_it=100)
 
     for i in range(num_srfs):
         soln_split = problem.spline_funcs[i].split()
@@ -194,10 +191,10 @@ for nonlinear_test_iter in range(load_step):
         QoI_temp = problem.spline_funcs[spline_ind](xi)[2]\
                  /splines[spline_ind].cpFuncs[3](xi)
         if j == 0:
-            print("Vertical displacement for point A = {:8.6f}"\
+            print("Vertical displacement at point A = {:8.6f}"\
                   .format(QoI_temp))
             WA_list += [QoI_temp,]
         else:
-            print("Vertical displacement for point B = {:8.6f}"\
+            print("Vertical displacement at point B = {:8.6f}"\
                   .format(QoI_temp))
             WB_list += [QoI_temp,]
