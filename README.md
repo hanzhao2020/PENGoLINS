@@ -2,20 +2,31 @@
 
 A Python module for **PEN**alty-based **GL**uing of **I**sogeometric **N**on-matching **S**hells (where the lower-case "o" is added for pronunciation; pronounced like "pangolins", mammals that are covered in large, protective scales). This framework performs isogeometric analysis (IGA) for collections of non-matching Kirchhoff--Love shells using the penalty method. 
 
-The penalty formulation used here is partially based on Section 2 of
+Detailed tutorial and examples are demonstrated in [PENGoLINS documentation](https://hanzhao2020.github.io/PENGoLINS/).
+
+Couping between non-matching patches uses a slightly modification of penalty formulation proposed in Section 2 of
 
 https://doi.org/10.1016/j.cma.2018.08.038
 
 ## Dependencies
-* [NumPy](https://numpy.org/) and [SciPy](https://www.scipy.org/) are required.
-* This module is developed based on [FEniCS](https://fenicsproject.org/).
-* Performing IGA relies on [tIGAr](https://github.com/david-kamensky/tIGAr).
-* Geometry preprocessing requires [igakit](https://bitbucket.org/dalcinl/igakit/src/master/) and [pythonocc](https://github.com/tpaviot/pythonocc-core).
-* Kirchhoff--Love shell models are obtained from [ShNAPr](https://github.com/david-kamensky/ShNAPr).
-* Fluid--thin structure interaction analysis requires [VarMINT](https://github.com/david-kamensky/VarMINT) and [CouDALFISh](https://github.com/david-kamensky/CouDALFISh).
 
+1. [Numpy](https://numpy.org/) and [SciPy](https://scipy.org/) can be installed through ``pip3``.
 
-## Installation
-It is recommended that install all dependencies in an environment of [Anaconda](https://www.anaconda.com/), which is the most convenient way to install geometry tool [pythonocc](https://github.com/tpaviot/pythonocc-core). Then clone the repository and install it by running `pip3 install -e.` in the top-level directory of the repository.
+2. Installation of [FEniCS](https://fenicsproject.org/) can be found [here](https://fenicsproject.org/download/archive/).
 
-API documentation can be created by changing the directory to `docs` and running `make html`. The main documentation is located in `docs/_build/html/index.html`.
+3. IGA Python library [tIGAr](https://github.com/david-kamensky/tIGAr) can be installed based on [here](https://github.com/david-kamensky/tIGAr/blob/master/README.md).
+
+4. The Python module for isogeometric Kirchhoff--Love shell [ShNAPr](https://github.com/david-kamensky/ShNAPr) is required.
+
+5. Leveraging geometry kernel requires [pythonOCC](https://github.com/tpaviot/pythonocc-core), whose installation instruction can be found [here](https://github.com/tpaviot/pythonocc-core/blob/master/INSTALL.md).
+
+6. Geometry in benchmark problems are created using [igakit](https://bitbucket.org/dalcinl/igakit/src/master/).
+
+7. Running FSI analysis requires the variational multiscale incompressible Navier--Stokes toolkit [VarMINT](https://github.com/david-kamensky/VarMINT) and Python module for coupling of fluids with immersed shells [CouDALFISh](https://github.com/david-kamensky/CouDALFISh).
+
+## Installation of PENGoLINS
+First clone the GitHub repository and install it using `pip3` on the top-level directory of the repository
+```
+git clone https://github.com/hanzhao2020/PENGoLINS.git
+pip3 install -e.
+```
