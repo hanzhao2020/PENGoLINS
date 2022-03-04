@@ -1,12 +1,20 @@
 # PENGoLINS
 
-A Python module for **PEN**alty-based **GL**uing of **I**sogeometric **N**on-matching **S**hells (where the lower-case "o" is added for pronunciation; pronounced like "pangolins", mammals that are covered in large, protective scales). This framework performs isogeometric analysis (IGA) for collections of non-matching Kirchhoff--Love shells using the penalty method. 
+A Python module for **PEN**alty-based **GL**uing of **I**sogeometric **N**on-matching **S**hells (where the lower-case "o" is added for pronunciation; pronounced like "pangolins", mammals that are covered in large, protective scales). This framework performs isogeometric analysis (IGA) for collections of non-matching Kirchhoff--Love shells using the penalty method. Penalty formulation and design of PENGoLINS are discussed in the following article:
+```
+@article{Zhao2022,
+title = "An open-source framework for coupling non-matching isogeometric shells with application to aerospace structures",
+journal = "Computers \& Mathematics with Applications",
+volume = "111",
+pages = "109--123",
+year = "2022",
+issn = "0898-1221",
+doi = "https://doi.org/10.1016/j.camwa.2022.02.007",
+author = "H. Zhao and X. Liu and A. H. Fletcher and R. Xiang and J. T. Hwang and D. Kamensky"
+}
+```
 
 Detailed tutorial and examples are demonstrated in [PENGoLINS documentation](https://hanzhao2020.github.io/PENGoLINS/).
-
-Couping between non-matching patches uses a slightly modification of penalty formulation proposed in Section 2 of
-
-https://doi.org/10.1016/j.cma.2018.08.038
 
 ## Dependencies
 
