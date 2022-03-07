@@ -13,6 +13,7 @@ doi = "https://doi.org/10.1016/j.camwa.2022.02.007",
 author = "H. Zhao and X. Liu and A. H. Fletcher and R. Xiang and J. T. Hwang and D. Kamensky"
 }
 ```
+A preprint of the above article can be found [here](https://github.com/LSDOlab/lsdo_bib/blob/main/pdf/zhao2022open.pdf).
 
 Detailed tutorial and examples are demonstrated in [PENGoLINS documentation](https://hanzhao2020.github.io/PENGoLINS/).
 
