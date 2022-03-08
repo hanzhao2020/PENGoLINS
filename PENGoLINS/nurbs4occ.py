@@ -7,7 +7,7 @@ to create NURBS control mesh.
 
 from tIGAr.common import *
 from tIGAr.BSplines import *
-from PENGoLINS.OCC_utils import *
+from PENGoLINS.occ_utils import *
 
 class NURBSControlMesh4OCC(AbstractControlMesh):
     """

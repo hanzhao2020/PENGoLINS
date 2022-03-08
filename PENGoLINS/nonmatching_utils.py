@@ -14,7 +14,6 @@ from petsc4py import PETSc
 from tIGAr.common import *
 from tIGAr.BSplines import *
 
-from PENGoLINS.NURBS4OCC import *
 from PENGoLINS.transfer_matrix import *
 from PENGoLINS.math_utils import *
 

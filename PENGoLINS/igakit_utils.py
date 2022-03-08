@@ -8,7 +8,7 @@ of igakit.
 
 from igakit.cad import *
 from igakit.io import VTK
-from PENGoLINS.OCC_utils import *
+from PENGoLINS.occ_utils import *
 
 def BSpline_surface2ikNURBS(occ_bs_surf, p=3, u_num_insert=0, 
                             v_num_insert=0, refine=False):

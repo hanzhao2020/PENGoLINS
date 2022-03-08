@@ -5,7 +5,8 @@ provides class for geometry preprocessing and computation
 of surface-surface intersections.
 """
 
-from PENGoLINS.OCC_utils import *
+from PENGoLINS.occ_utils import *
+from PENGoLINS.nurbs4occ import *
 
 class BSplineSurfacesConnectedEdges(object):
     """
