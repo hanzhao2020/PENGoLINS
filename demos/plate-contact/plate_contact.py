@@ -1,6 +1,8 @@
-from PENGoLINS.nonmatching_coupling import *
-from ShNAPr.contact import *
 from tIGAr.timeIntegration import *
+from tIGAr.NURBS import *
+from ShNAPr.contact import *
+from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.igakit_utils import *
 
 import os
 import psutil
@@ -221,7 +223,7 @@ for time_iter in range(total_steps):
             problem.spline_test_funcs[i])*problem.splines[i].dx,]
         residuals += [res_list[i]+dMass_list[i]]
     problem.set_residuals(residuals)    
-    problem.solve_nonlinear_nonmatching_problem(rel_tol=1e-3, max_iter=100,
+    problem.solve_nonlinear_nonmatching_problem(rtol=1e-3, max_it=100,
                                                 zero_mortar_funcs=False)
     for i in range(problem.num_splines):
         soln_split = problem.spline_funcs[i].split()

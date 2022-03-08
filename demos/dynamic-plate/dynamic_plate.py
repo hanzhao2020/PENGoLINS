@@ -1,5 +1,7 @@
-from PENGoLINS.nonmatching_coupling import *
 from tIGAr.timeIntegration import *
+from tIGAr.NURBS import *
+from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.igakit_utils import *
 
 SAVE_PATH = "./"
 
@@ -53,7 +55,7 @@ num_el_list = [8,]
 QoI_list = []
 QoI_normal_list = []
 
-num_el = num_el_list[0,]
+num_el = num_el_list[0]
 penalty_coefficient = 1.0e3
 print("Penalty coefficient:", penalty_coefficient)
 
@@ -192,7 +194,7 @@ for time_iter in range(total_steps):
     problem.set_residuals(residuals)
 
     print("Solving nonlinear non-matching problem...")
-    problem.solve_nonlinear_nonmatching_problem(rel_tol=1e-3, max_iter=100,
+    problem.solve_nonlinear_nonmatching_problem(rtol=1e-3, max_it=100,
                                                 zero_mortar_funcs=False)
 
     for i in range(problem.num_splines):

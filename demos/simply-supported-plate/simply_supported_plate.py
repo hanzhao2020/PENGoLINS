@@ -1,4 +1,6 @@
+from tIGAr.NURBS import *
 from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.igakit_utils import *
 
 def create_surf(pts,num_el0, num_el1,p):
     knots0 = np.linspace(0,1,num_el0+1)[1:-1]
@@ -49,7 +51,7 @@ pts3 = [[L/2, L/2, 0.], [L, L/2, 0.],
 pts_list = [pts0, pts1, pts2, pts3]
 num_srfs = len(pts_list)
 
-pc_list = [1.0e1, 1.0e2, 1.0e3, 1.0e4, 1.0e5, 1.0e6]
+# pc_list = [1.0e1, 1.0e2, 1.0e3, 1.0e4, 1.0e5, 1.0e6]
 pc_list = [1.0e3,]
 num_el_list = [16,]
 QoI_list = []

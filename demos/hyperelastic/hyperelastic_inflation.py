@@ -1,5 +1,7 @@
-from PENGoLINS.nonmatching_coupling import *
 from tIGAr.timeIntegration import *
+from tIGAr.NURBS import *
+from PENGoLINS.nonmatching_coupling import *
+from PENGoLINS.igakit_utils import *
 
 parameters["form_compiler"]["representation"] = "tsfc"
 
@@ -161,7 +163,7 @@ for time_iter in range(n_steps):
 
 
     print("Solving nonlinear non-matching problem...")
-    problem.solve_nonlinear_nonmatching_problem(rel_tol=1e-2, max_iter=100,
+    problem.solve_nonlinear_nonmatching_problem(rtol=1e-2, max_it=100,
                                                 zero_mortar_funcs=False)
     for i in range(num_srfs):
         soln_split = problem.spline_funcs[i].split()
