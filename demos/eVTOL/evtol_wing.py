@@ -5,9 +5,8 @@ The required eVTOL geometry can be downloaded from:
 
 and extracted using the command "tar -xvzf eVTOL_wing_structure.tgz".
 """
-
+from PENGoLINS.occ_preprocessing import *
 from PENGoLINS.nonmatching_coupling import *
-from PENGoLINS.OCC_preprocessing import *
 
 SAVE_PATH = "./"
 
@@ -23,7 +22,7 @@ def clampedBC(spline_generator, side=0, direction=0):
 def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=4, 
                         setBCs=None, side=0, direction=0, index=0):
     """
-    Convert OCC B-spline surface to ExtractedBSpline.
+    Generate ExtractedBSpline from OCC B-spline surface.
     """
     quad_deg = surface.UDegree()*quad_deg_const
     DIR = SAVE_PATH+"spline_data/extraction_"+str(index)+"_init"
@@ -41,13 +40,12 @@ save_stress = True
 # Define parameters
 # Scale down the geometry using ``geom_scale``to make the length 
 # of the wing in the span-wise direction is around 5 m.
-geom_scale = 2.54e-5  # 1.e-3  # Convert mm to m
+geom_scale = 2.54e-5  # Convert current length unit to m
 E = Constant(68e9)  # Young's modulus, Pa
 nu = Constant(0.35)  # Poisson's ratio
 h_th = Constant(3.0e-3)  # Thickness of surfaces, m
 
 p = 3  # spline order
-num_field = 3
 penalty_coefficient = 1.0e3
 
 print("Importing geometry...")
@@ -60,11 +58,7 @@ evtol_surfaces = [topoface2surface(face, BSpline=True)
 # Spars indices: [78, 92, 79]
 # Ribs indices: list(range(80, 92))
 wing_indices = list(range(12, 18)) + [78, 92, 79]  + list(range(80, 92))
-
-wing_surfaces = []
-for ind in wing_indices:
-    wing_surfaces += [evtol_surfaces[ind],]
-
+wing_surfaces = [evtol_surfaces[i] for i in wing_indices]
 num_surfs = len(wing_surfaces)
 if mpirank == 0:
     print("Number of surfaces:", num_surfs)
@@ -72,7 +66,12 @@ if mpirank == 0:
 num_pts_eval = [16]*num_surfs
 u_insert_list = [8]*num_surfs
 v_insert_list = [8]*num_surfs
-ref_level_list = [2]*num_surfs
+ref_level_list = [1]*num_surfs
+for i in [4,5]:
+    if ref_level_list[i] > 4:
+        ref_level_list[i] = 2
+    elif ref_level_list[i] <=4 and ref_level_list[i] >= 1:
+        ref_level_list[i] = 1
 
 u_num_insert = []
 v_num_insert = []
@@ -84,12 +83,12 @@ for i in range(len(u_insert_list)):
 preprocessor = OCCPreprocessing(wing_surfaces, reparametrize=True, 
                                 refine=True)
 preprocessor.reparametrize_BSpline_surfaces(num_pts_eval, num_pts_eval,
+                                            geom_scale=geom_scale,
                                             remove_dense_knots=True,
-                                            geom_scale=geom_scale, 
                                             rtol=1e-4)
 preprocessor.refine_BSpline_surfaces(p, p, u_num_insert, v_num_insert, 
                                      correct_element_shape=True)
-preprocessor.compute_intersections(mortar_refine=2, cut_ratio=0.03)
+preprocessor.compute_intersections(mortar_refine=2)
 
 if mpirank == 0:
     print("Total DoFs:", preprocessor.total_DoFs)

@@ -12,7 +12,7 @@ This section provides an overview of PENGoLINS code structure, analysis workflow
 ## Preprocessing
 Two major functionalities are developed for PENGoLINS in order to perform IGA for non-matching shell structures. The first one is geometry preprocessing, which is able to refine imported B-spline surfaces, reparametrize them to generate IGA-friendly surfaces if needed, and compute locations of surface-surface intersections in both physical and parametric spaces. The preprocessing step is demonstrated in the following code snippet
 ```python
-from PENGoLINS.OCC_preprocessing import *
+from PENGoLINS.occ_preprocessing import *
 # Import a CAD geometry "example.igs" consisting of multiple B-spline 
 # surfaces into a python list and convert them to the type of OCC 
 # Geom B-spline surfaces.
