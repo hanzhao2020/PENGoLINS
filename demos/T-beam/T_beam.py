@@ -1,6 +1,6 @@
 from tIGAr.NURBS import *
 from PENGoLINS.nonmatching_coupling import *
-from PENGoLINS.igakit_utils import *
+from igakit.cad import *
 import matplotlib.pyplot as plt
 
 def create_surf(pts, num_el0, num_el1, p):
