@@ -88,6 +88,7 @@ preprocessor.reparametrize_BSpline_surfaces(num_pts_eval, num_pts_eval,
                                             rtol=1e-4)
 preprocessor.refine_BSpline_surfaces(p, p, u_num_insert, v_num_insert, 
                                      correct_element_shape=True)
+print("Computing intersections...")
 preprocessor.compute_intersections(mortar_refine=2)
 
 if mpirank == 0:
@@ -109,11 +110,11 @@ for i in range(num_surfs):
         # Apply clamped BC to surfaces near root
         spline = OCCBSpline2tIGArSpline(
                  preprocessor.BSpline_surfs_refine[i], 
-                 setBCs=clampedBC, side=0, direction=0)
+                 setBCs=clampedBC, side=0, direction=0, index=i)
         splines += [spline,]
     else:
         spline = OCCBSpline2tIGArSpline(
-                 preprocessor.BSpline_surfs_refine[i])
+                 preprocessor.BSpline_surfs_refine[i], index=i)
         splines += [spline,]
 
 # Create non-matching problem
@@ -173,8 +174,8 @@ von_Mises_tops = []
 for i in range(problem.num_splines):
     spline_stress = ShellStressSVK(problem.splines[i], 
                                    problem.spline_funcs[i],
-                                   E, nu, h_th, linearize=True, 
-                                   G_det_min=5e-2)
+                                   E, nu, h_th, linearize=True,) 
+                                   # G_det_min=5e-2)
     # von Mises stresses on top surfaces
     von_Mises_top = spline_stress.vonMisesStress(h_th/2)
     von_Mises_top_proj = problem.splines[i].projectScalarOntoLinears(
