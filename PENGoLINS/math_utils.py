@@ -4,6 +4,8 @@ The "calculus_utils" module
 contains math functions that can be repeatedly used.
 """
 
+import os
+import sys
 from math import *
 import numpy as np
 from scipy.spatial import cKDTree

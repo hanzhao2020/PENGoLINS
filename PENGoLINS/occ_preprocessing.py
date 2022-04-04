@@ -1047,5 +1047,54 @@ class OCCPreprocessing(object):
         if save_fig:
             display.View.Dump('./'+filename)
 
+    def save_intersections_data(self, filename, data_path='./'):
+        """
+        Save intersections related data to a numpy file.
+
+        Parameters
+        ----------
+        filename: str, with .npz extension
+        data_path : str, default is './'
+        """
+        if not self.compute_int_is_done:
+            raise RuntimeError("Surface-surface intersections have not "
+                               "been computed yet, no data can be saved.")
+
+        if not os.path.exists(data_path):
+            os.mkdir(data_path)
+
+        np.savez(data_path+filename,
+                 name1=self.num_intersections_all,
+                 name2=self.mapping_list,
+                 name3=self.intersections_phy_coords,
+                 name4=self.intersections_para_coords,
+                 name5=self.intersections_length,
+                 name6=self.mortar_nels)
+
+    def load_intersections_data(self, filename, data_path='./'):
+        """
+        Load intersections related data to preprocessor.
+
+        Parameters
+        ----------
+        filename : str
+        data_path : str, default is './'
+        """
+        if self.compute_int_is_done:
+            raise RuntimeError("Surface-surface intersections have been "
+                               "computed, cannot load data again.")
+            
+        intersections_data = np.load(data_path+filename)
+        self.compute_int_is_done = True
+        self.num_intersections_all = int(intersections_data['name1'])
+        self.mapping_list = intersections_data['name2']
+        self.intersections_phy_coords = intersections_data['name3']
+        self.intersections_para_coords = intersections_data['name4']
+        self.intersections_length = intersections_data['name5']
+        self.mortar_nels = intersections_data['name6']
+
+
+
+
 if __name__ == "__main__":
     pass
