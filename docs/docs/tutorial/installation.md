@@ -22,7 +22,7 @@ To install PENGoLINS, a list of dependencies have to be installed beforehand.
 
 6. Geometry in benchmark problems are created using [igakit](https://bitbucket.org/dalcinl/igakit/src/master/), which can be installed using the following command
 ```bash
-pip3 install https://bitbucket.org/dalcinl/igakit/get/master.tar.gz
+pip3 install https://github.com/dalcinl/igakit/archive/refs/heads/master.zip
 ```
 
 7. Running FSI analysis requires the variational multiscale incompressible Navier--Stokes toolkit [VarMINT](https://github.com/david-kamensky/VarMINT) and Python module for coupling of fluids with immersed shells [CouDALFISh](https://github.com/david-kamensky/CouDALFISh).
