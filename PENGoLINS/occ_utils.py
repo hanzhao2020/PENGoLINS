@@ -19,13 +19,16 @@ from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCC.Core.TColgp import TColgp_Array1OfPnt, TColgp_Array2OfPnt
 from OCC.Core.TColStd import TColStd_Array1OfReal, TColStd_Array1OfInteger
 from OCC.Core.TColStd import TColStd_Array2OfReal, TColStd_Array2OfInteger
+from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Face
 from OCC.Core.Approx import Approx_ParametrizationType
 from OCC.Core.GProp import GProp_GProps
 from OCC.Core.BRepGProp import (brepgprop_LinearProperties,
                                 brepgprop_SurfaceProperties,
                                 brepgprop_VolumeProperties)
-
-from OCC.Extend.DataExchange import read_step_file, read_iges_file
+from OCC.Extend.DataExchange import (read_step_file, read_iges_file,
+                                     write_step_file, write_iges_file,
+                                     TopoDS_Shape, TopoDS_Compound,
+                                     BRep_Builder)
 from OCC.Extend.ShapeFactory import point_list_to_TColgp_Array1OfPnt
 from OCC.Extend.ShapeFactory import make_face, make_edge
 from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -80,6 +83,54 @@ def read_stp_file(filename, as_compound=False):
                 stp_shapes_temp += [face,]
         stp_shapes = stp_shapes_temp
     return stp_shapes
+
+def write_geom_file(geom, filename, file_format="igs"):
+    """
+    Write OCC Geom surfaces or TopoDS Faces to igs file. If 
+    a list of the geometries is given, write them to a 
+    compound file.
+
+    Parameters
+    ----------
+    geom : OCC geometry (i.e., TopoDS_Face, TopoDS_Edge, 
+           TopoDS_Shape, Geom_Surface, Geom_BSplineSurface,
+           Geom_Curve, Geom_BSplineCurve) or a list of geometry
+    filename : str
+    file_format : str, {"igs", "stp"}, default: "igs"
+    """
+    if isinstance(geom, list):
+        brep_builder = BRep_Builder()
+        topods_compound = TopoDS_Compound()
+        brep_builder.MakeCompound(topods_compound)
+
+        for i in range(len(geom)):
+            if isinstance(geom[i], Geom_Surface) or \
+                isinstance(geom[i], Geom_BSplineSurface):
+                brep_builder.Add(topods_compound, 
+                                 make_face(geom[i], 1e-9))
+            elif isinstance(geom[i], Geom_Curve) or \
+                isinstance(geom[i], Geom_BSplineCurve):
+                brep_builder.Add(topods_compound, 
+                                 make_edge(geom[i], 1e-9))
+            else:
+                brep_builder.Add(topods_compound, geom[i])
+        to_save = topods_compound
+    else:
+        if isinstance(geom, Geom_Surface) or \
+            isinstance(geom, Geom_BSplineSurface):
+            to_save = make_face(geom, 1e-9)
+        elif isinstance(geom, Geom_Curve) or \
+            isinstance(geom, Geom_BSplineCurve):
+            to_save = make_edge(geom, 1e-9)
+        else:
+            to_save = geom
+            
+    if file_format == "igs":
+        write_iges_file(to_save, filename)
+    elif file_format == "stp":
+        write_step_file(to_save, filename)
+    else:
+        raise ValueError("{} format is not supported.".format(file_format))
 
 def BSpline_surface_interior_multiplicity(occ_bs_surf):
     """
@@ -216,7 +267,7 @@ def topoedge2curve(topo_edge, BSpline=False):
         curve = edge_adaptor.Curve().Curve()
     return curve
 
-def surface2topoface(surface, tol=1e-6):
+def surface2topoface(surface, tol=1e-9):
     """
     Convert OCC Geom Surface to OCC topo face.
 
@@ -417,7 +468,7 @@ def curve_length(curve):
     length = prop.Mass()
     return length
 
-def surface_area(surface, tol=1e-6):
+def surface_area(surface, tol=1e-9):
     """
     Returns the area of a given ``surface``.
 
