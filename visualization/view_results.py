@@ -2,6 +2,7 @@
 
 import os
 import argparse
+import distutils
 
 #### import the simple module from the paraview
 from paraview.simple import *
@@ -22,15 +23,19 @@ parser.add_argument('--show_disp_edge', dest='show_disp_edge', default=False,
                     help="Show edges on deformed geometry.")
 parser.add_argument('--show_stress', dest='show_stress', default=False,
                     help="Show von Mises stress on deformed geometry.")
+parser.add_argument('--show_stress_edge', dest='show_stress_edge', default=False,
+                    help="Show edges on von Mises stress.")
 parser.add_argument('--geom_opacity', dest='geom_opacity', default=1.0,
                     help="Opacity for undeformed geometry.")
 parser.add_argument('--disp_opacity', dest='disp_opacity', default=1.0,
                     help="Opacity for deformed geometry.")
 parser.add_argument('--disp_scale', dest='disp_scale', default=1,
                     help="Scale factor for displacement.")
+parser.add_argument('--stress_opacity', dest='stress_opacity', default=1.0,
+                    help="Opacity for stress.")
 parser.add_argument('--start_ind', dest='start_ind', default=0,
                     help="Index for first spline.")
-parser.add_argument('--end_ind', dest='end_ind', default=1,
+parser.add_argument('--end_ind', dest='end_ind', default=2,
                     help="Index for last spline.")
 parser.add_argument('--save_state', dest='save_state', default=True,
                     help="Save current view to a Paraview state file.")
@@ -41,28 +46,33 @@ parser.add_argument('--interact', dest='interact', default=False,
 
 args = parser.parse_args()
 
+true_list = ['true', 'yes', 'y', '1']
+
 ### Arguments
 file_path = args.file_path
 
-show_geom = bool(args.show_geom)
-show_geom_edge = bool(args.show_geom_edge)
+show_geom = str(args.show_geom).lower() in true_list
+show_geom_edge = str(args.show_geom_edge).lower() in true_list
 
-show_disp = bool(args.show_disp)
-show_disp_edge = bool(args.show_disp_edge)
+show_disp = str(args.show_disp).lower() in true_list
+show_disp_edge = str(args.show_disp_edge).lower() in true_list
 
-show_stress = bool(args.show_stress)
+show_stress = str(args.show_stress).lower() in true_list
+show_stress_edge = str(args.show_stress_edge).lower() in true_list
 
 geom_opacity = float(args.geom_opacity)
 disp_opacity = float(args.disp_opacity)
 disp_scale = int(args.disp_scale)
+stress_opacity = float(args.stress_opacity)
 
 start_ind = int(args.start_ind)
 end_ind = int(args.end_ind)
 num_surf = end_ind - start_ind
 
-save_state = bool(args.save_state)
+save_state = str(args.save_state).lower() in true_list
 filename = args.filename_prefix
-interact = bool(args.interact)
+interact = str(args.interact).lower() in true_list
+
 
 if save_state:
     filename += "_patch_"+str(start_ind)+"_"+str(end_ind)
@@ -130,57 +140,43 @@ for surf_ind in range(start_ind, end_ind):
     if show_stress:
         # create a new 'Append Attributes'
         appendAttributes1 = AppendAttributes(registrationName='AppendAttributes'+str(surf_ind), 
-                                             Input=[f0_0_filepvd, f0_1_filepvd, f0_2_filepvd, 
-                                                    f0_3_filepvd, u0_0_filepvd, u0_1_filepvd, 
-                                                    u0_2_filepvd, von_Mises_top_0pvd])
+                                             Input=[f0_0_filepvd, f0_1_filepvd, f0_2_filepvd, f0_3_filepvd, 
+                                                    u0_0_filepvd, u0_1_filepvd, u0_2_filepvd, von_Mises_top_0pvd])
     else:
         appendAttributes1 = AppendAttributes(registrationName='AppendAttributes'+str(surf_ind), 
-                                             Input=[f0_0_filepvd, f0_1_filepvd, f0_2_filepvd, 
-                                                    f0_3_filepvd, u0_0_filepvd, u0_1_filepvd, 
-                                                    u0_2_filepvd])
+                                             Input=[f0_0_filepvd, f0_1_filepvd, f0_2_filepvd, f0_3_filepvd, 
+                                                    u0_0_filepvd, u0_1_filepvd, u0_2_filepvd])
 
     # create a new 'Calculator'
-    calculator1 = Calculator(registrationName='Calculator'+str(surf_ind)+'_1', 
-                             Input=appendAttributes1)
+    calculator1 = Calculator(registrationName='Calculator'+str(surf_ind)+'_1', Input=appendAttributes1)
 
     # Properties modified on calculator1
-    calculator1.Function = '(F'+str(surf_ind)+'_0/F'+str(surf_ind)\
-                         +'_3-coordsX)*iHat + (F'+str(surf_ind)+'_1/F'\
-                         +str(surf_ind)+'_3-coordsY)*jHat + (F'+str(surf_ind)\
-                         +'_2/F'+str(surf_ind)+'_3-coordsZ)*kHat'
+    calculator1.Function = '(F'+str(surf_ind)+'_0/F'+str(surf_ind)+'_3-coordsX)*iHat + (F'+str(surf_ind)+'_1/F'+str(surf_ind)+'_3-coordsY)*jHat + (F'+str(surf_ind)+'_2/F'+str(surf_ind)+'_3-coordsZ)*kHat'
 
     # create a new 'Warp By Vector'
-    warpByVector1 = WarpByVector(registrationName='WarpByVector'+str(surf_ind)+'_1', 
-                                 Input=calculator1)
+    warpByVector1 = WarpByVector(registrationName='WarpByVector'+str(surf_ind)+'_1', Input=calculator1)
     warpByVector1.Vectors = ['POINTS', 'Result']
 
     if show_geom:
-        warpByVector1Display = Show(warpByVector1, renderView1, 
-                                    'UnstructuredGridRepresentation')
+        warpByVector1Display = Show(warpByVector1, renderView1, 'UnstructuredGridRepresentation')
         ColorBy(warpByVector1Display, None)
         warpByVector1Display.Opacity = geom_opacity
         if show_geom_edge:
             warpByVector1Display.SetRepresentationType('Surface With Edges')
 
     # create a new 'Calculator'
-    calculator2 = Calculator(registrationName='Calculator'+str(surf_ind)+'_2', 
-                             Input=warpByVector1)
+    calculator2 = Calculator(registrationName='Calculator'+str(surf_ind)+'_2', Input=warpByVector1)
 
     # Properties modified on calculator2
-    calculator2.Function = '(u'+str(surf_ind)+'_0/F'+str(surf_ind)\
-                         +'_3)*iHat + (u'+str(surf_ind)+'_1/F'\
-                         +str(surf_ind)+'_3)*jHat + (u'+str(surf_ind)\
-                         +'_2/F'+str(surf_ind)+'_3)*kHat'
+    calculator2.Function = '(u'+str(surf_ind)+'_0/F'+str(surf_ind)+'_3)*iHat + (u'+str(surf_ind)+'_1/F'+str(surf_ind)+'_3)*jHat + (u'+str(surf_ind)+'_2/F'+str(surf_ind)+'_3)*kHat'
 
     # create a new 'Warp By Vector'
-    warpByVector2 = WarpByVector(registrationName='WarpByVector'+str(surf_ind)+'_2', 
-                                 Input=calculator2)
+    warpByVector2 = WarpByVector(registrationName='WarpByVector'+str(surf_ind)+'_2', Input=calculator2)
     warpByVector2.Vectors = ['POINTS', 'Result']
     warpByVector2.ScaleFactor = disp_scale
     
     if show_disp:
-        warpByVector2Display = Show(warpByVector2, renderView1, 
-                                    'UnstructuredGridRepresentation')
+        warpByVector2Display = Show(warpByVector2, renderView1, 'UnstructuredGridRepresentation')
         ColorBy(warpByVector2Display, ('POINTS', 'Result', 'Magnitude'))
         warpByVector2Display.Opacity = disp_opacity
         if show_disp_edge:
@@ -193,15 +189,17 @@ for surf_ind in range(start_ind, end_ind):
 
     if show_stress:
         # create a new 'Calculator'
-        calculator3 = Calculator(registrationName='Calculator'+str(surf_ind)+'_3', 
-                                 Input=warpByVector2)
+        calculator3 = Calculator(registrationName='Calculator'+str(surf_ind)+'_3', Input=warpByVector2)
 
         # Properties modified on calculator3
         calculator3.Function = 'von_Mises_top_'+str(surf_ind)+''
 
         # UpdatePipeline(time=0.0, proxy=calculator3)
-        calculator3Display = Show(calculator3, renderView1, 
-                                  'UnstructuredGridRepresentation')
+        calculator3Display = Show(calculator3, renderView1, 'UnstructuredGridRepresentation')
+        calculator3Display.Opacity = stress_opacity
+        if show_stress_edge:
+            calculator3Display.SetRepresentationType('Surface With Edges')
+
 
 renderView1.InteractionMode = '3D'
 renderView1.ResetCamera()
