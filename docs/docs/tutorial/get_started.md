@@ -101,3 +101,11 @@ or solve the nonlinear problem using Newton's iteration:
 problem.solve_nonlinear_nonmatching_problem()
 ```
 Direct solver is employed to solve the linear system by default, users can also choose the PETSc Krylov solver or provide a customized solver. The resulting solution in homogenous coordinate can be accessed in ``problem.spline_funcs[i]``, where ``i`` is the index of spline patch.
+
+For visualization of computed results in Paraview, first save the solutions into pvd files.
+```python
+for i in range(problem.num_splines):
+    save_results(problem.splines[i], problem.spline_funcs[i], i, 
+                 save_path=SAVE_PATH, comm=problem.comm)
+```
+Then follow the [instruction](https://github.com/hanzhao2020/PENGoLINS/tree/main/visualization) and use the pvpython [script](https://github.com/hanzhao2020/PENGoLINS/blob/main/visualization/view_results.py) to generate the Paraview state file.
