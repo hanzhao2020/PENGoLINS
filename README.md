@@ -29,7 +29,7 @@ Detailed tutorial and examples are demonstrated in [PENGoLINS documentation](htt
 
 5. Leveraging geometry kernel requires [pythonOCC](https://github.com/tpaviot/pythonocc-core), whose installation instruction can be found [here](https://github.com/tpaviot/pythonocc-core/blob/master/INSTALL.md).
 
-6. Geometry in benchmark problems are created using [igakit](https://bitbucket.org/dalcinl/igakit/src/master/).
+6. Geometry in benchmark problems are created using [igakit](https://github.com/dalcinl/igakit).
 
 7. Running FSI analysis requires the variational multiscale incompressible Navier--Stokes toolkit [VarMINT](https://github.com/david-kamensky/VarMINT) and Python module for coupling of fluids with immersed shells [CouDALFISh](https://github.com/david-kamensky/CouDALFISh).
 
