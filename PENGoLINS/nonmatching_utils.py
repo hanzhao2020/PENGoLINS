@@ -304,7 +304,7 @@ def zero_petsc_mat(row, col, mat_type=None,
     A = PETSc.Mat(comm)
     A.create(comm=comm)
     if mat_type is not None:
-        mat_type.setType(mat_type)
+        A.setType(mat_type)
     A.setSizes([row, col])
     A.setPreallocationNNZ([PREALLOC, PREALLOC])
     A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
@@ -1118,7 +1118,6 @@ def move_mortar_mesh(mortar_mesh, mesh_location):
 
     num_node = int(um.vector().vec().getSizes()[1]\
                    /mortar_mesh.geometric_dimension())
-
     if num_node == mesh_location.shape[0]:
         mesh_location_data = mesh_location
     else:
@@ -1155,6 +1154,31 @@ def spline_mesh_phy_coordinates(spline, reshape=True):
         phy_coordinates = phy_coordinates.reshape(num_rows, num_cols, 3)
     return phy_coordinates
 
+def tangent_components(mesh):
+    """
+    Compute tangent vector components of a 1D interval mesh
+    in 2D parameteric space.
+
+    Parameters
+    ----------
+    mesh : dolfin mesh
+    """
+    mesh_coord = mesh.coordinates()
+    mesh_x_coord = mesh_coord[:,0]
+    mesh_y_coord = mesh_coord[:,1]
+
+    x_coord_grad = np.gradient(mesh_x_coord)
+    y_coord_grad = np.gradient(mesh_y_coord)
+
+    V = FunctionSpace(mesh, 'CG', 1)
+    t1 = Function(V)
+    t2 = Function(V)
+
+    t1.vector().set_local(x_coord_grad[::-1])
+    t2.vector().set_local(y_coord_grad[::-1])
+
+    return t1, t2
+
 def spline_mesh_size(spline):
     """
     Compute the mesh size in the physical space of 
@@ -1172,9 +1196,9 @@ def spline_mesh_size(spline):
     # dX_dxi = grad(spline.F)
     # dX_dxiHat = dX_dxi*dxi_dxiHat
     # h = sqrt(tr(dX_dxiHat*dX_dxiHat.T))
-    h_param = CellDiameter(spline.mesh)
+    h_para = CellDiameter(spline.mesh)
     dX_dxi = grad(spline.F)
-    h = h_param*sqrt(tr(dX_dxi*dX_dxi.T))
+    h = h_para*sqrt(tr(dX_dxi*dX_dxi.T))
     return h
 
 def point_in_mesh(mesh, xi):

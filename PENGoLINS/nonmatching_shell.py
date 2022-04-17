@@ -34,7 +34,6 @@ def create_transfer_matrix_list(V1, V2, dV2=None):
     # A12 = PETScDMCollection.create_transfer_matrix(V1,V2)
     A12 = create_transfer_matrix(V1,V2)
     matrix_list += [A12,]
-
     if dV2 is not None: 
         # Matrices to trasfer derivatives
         dim = dV2.mesh().geometric_dimension()
@@ -219,7 +218,7 @@ def penalty_displacement(alpha_d, u1m_hom, u2m_hom,
     W_pd = 0.5*alpha_d*((u1m_hom-u2m_hom)**2)*line_Jacobian*dx_m
     return W_pd
 
-def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, 
+def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, t11, t21, 
                      line_Jacobian=None, dx_m=None):
     """
     Penalization of rotation on the non-matching interface 
@@ -238,32 +237,122 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi,
     ------
     W_pd : ufl Form
     """
-
+    # print("New penatly rotation")
     if line_Jacobian is None:
         line_Jacobian = Constant(1.)
     if dx_m is None:
         dx_m = dx
 
     # Orthonormal basis for patch 1
-    e11, e21, e31 = interface_orthonormal_basis(dx1dxi)
-    E11, E21, E31 = interface_orthonormal_basis(dX1dxi)
+    a11, a21, a31 = interface_geometry(dx1dxi)
+    A11, A21, A31 = interface_geometry(dX1dxi)
 
     # Orthonormal basis for patch 2
-    e12, e22, e32 = interface_orthonormal_basis(dx2dxi)
-    E12, E22, E32 = interface_orthonormal_basis(dX2dxi)
+    a12, a22, a32 = interface_geometry(dx2dxi)
+    A12, A22, A32 = interface_geometry(dX2dxi)
 
-    pe = project_normal_vector_onto_tangent_space(e32, e11, e21)
-    pE = project_normal_vector_onto_tangent_space(E32, E11, E21)
+    at1 = t11*a11 + t21*a21
+    At1 = t11*A11 + t21*A21
 
-    W_pr = 0.5*alpha_r*((dot(e31, e32)-dot(E31, E32))**2 \
-           + (sqrt(dot(pe, pe)+DOLFIN_EPS)-sqrt(dot(pE, pE)))**2) \
-           *line_Jacobian*dx_m
+    an1 = cross(a31, at1)/sqrt(inner(at1, at1))
+    An1 = cross(A31, At1)/sqrt(inner(At1, At1))
+
+    # print("Using updated penalty of rotation ...")
+
+    W_pr = 0.5*alpha_r*((inner(a31, a32) - inner(A31, A32))**2 
+         + (inner(an1, a32) - inner(An1, A32))**2)*line_Jacobian*dx_m
 
     return W_pr
 
+# def penalty_rotation_in_paper(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, 
+#                               line_Jacobian=None, dx_m=None):
+#     """
+#     Penalization of rotation on the non-matching interface 
+#     between two splines.
+
+#     Parameters
+#     ----------
+#     alpha_r : ufl.algebra.Division
+#     u1m_hom : dolfin Function
+#     u2m_hom : dolfin Function
+#     dXdxi : dolfin ListTensor
+#     line_Jacobian : dolfin Function or None, optional
+#     dx_m : ufl Measure or None, optional
+
+#     Return
+#     ------
+#     W_pd : ufl Form
+#     """
+#     # print("New penatly rotation")
+#     if line_Jacobian is None:
+#         line_Jacobian = Constant(1.)
+#     if dx_m is None:
+#         dx_m = dx
+
+#     # Orthonormal basis for patch 1
+#     e11, e21, e31 = interface_orthonormal_basis(dx1dxi)
+#     E11, E21, E31 = interface_orthonormal_basis(dX1dxi)
+
+#     # Orthonormal basis for patch 2
+#     e12, e22, e32 = interface_orthonormal_basis(dx2dxi)
+#     E12, E22, E32 = interface_orthonormal_basis(dX2dxi)
+
+#     pe = project_normal_vector_onto_tangent_space(e32, e11, e21)
+#     pE = project_normal_vector_onto_tangent_space(E32, E11, E21)
+
+#     W_pr = 0.5*alpha_r*((dot(e31, e32)-dot(E31, E32))**2 \
+#            + (sqrt(dot(pe, pe)+DOLFIN_EPS)-sqrt(dot(pE, pE)))**2) \
+#            *line_Jacobian*dx_m
+
+#     # # Expand the above formulation to increase stability
+#     # W_pr = 0.5*alpha_r*((dot(e31, e32)-dot(E31, E32))**2 \
+#     #      + (dot(pe, pe) + dot(pE, pE) 
+#     #         - (2*sqrt(dot(pe, pe)+DOLFIN_EPS)*sqrt(dot(pE,pE))) )
+#     #      )*line_Jacobian*dx_m
+
+#     return W_pr
+
+# def penalty_rotation_old(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, 
+#                          line_Jacobian=None, dx_m=None):
+#     """
+#     Penalization of rotation on the non-matching interface 
+#     between two splines.
+
+#     Parameters
+#     ----------
+#     alpha_r : ufl.algebra.Division
+#     u1m_hom : dolfin Function
+#     u2m_hom : dolfin Function
+#     dXdxi : dolfin ListTensor
+#     line_Jacobian : dolfin Function or None, optional
+#     dx_m : ufl Measure or None, optional
+
+#     Return
+#     ------
+#     W_pd : ufl Form
+#     """
+#     # print("Old penatly rotation")
+#     # For patch 1
+#     if line_Jacobian is None:
+#         line_Jacobian = Constant(1.)
+#     if dx_m is None:
+#         dx_m = dx
+#     e11, e21, e31 = interface_orthonormal_basis(dx1dxi)
+#     E11, E21, E31 = interface_orthonormal_basis(dX1dxi)
+
+#     # For patch 2
+#     a12, a22, a32 = interface_geometry(dx2dxi)
+#     A12, A22, A32 = interface_geometry(dX2dxi)
+
+#     W_pr = 0.5*alpha_r*((dot(e11, a32)-dot(E11, A32))**2 \
+#          + (dot(e21, a32)-dot(E21, A32))**2
+#          + (dot(e31, a32)-dot(E31, A32))**2)*line_Jacobian*dx_m
+#     return W_pr
+
 def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control, 
                    A1_control, A2_control, alpha_d, alpha_r, 
-                   mortar_vars1, mortar_vars2, dx_m=None, metadata=None):
+                   mortar_vars1, mortar_vars2, t11, t21,
+                   dx_m=None, metadata=None):
     """
     Penalization of displacement and rotation of non-matching interface 
     between two extracted splines.
@@ -322,7 +411,7 @@ def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control,
                                 line_Jacobian, dx_m)
     # Penalty of rotation
     W_pr = penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, 
-                            line_Jacobian, dx_m)
+                            t11, t21, line_Jacobian, dx_m)
     W_p = W_pd + W_pr
     return W_p
 

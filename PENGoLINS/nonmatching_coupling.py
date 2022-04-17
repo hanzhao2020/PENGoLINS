@@ -194,14 +194,21 @@ class NonMatchingCoupling(object):
         self.alpha_d_list = []
         self.alpha_r_list = []
 
+        self.t1_A_list = []
+        self.t2_A_list = []
+
         for i in range(self.num_interfaces):
             transfer_matrices = [[], []]
             transfer_matrices_control = [[], []]
             transfer_matrices_linear = [[], []]
             for j in range(len(self.mapping_list[i])):
-
                 move_mortar_mesh(self.mortar_meshes[i], 
                                  mortar_parametric_coords[i][j])
+                if j == 0:
+                    t11, t21 = tangent_components(self.mortar_meshes[i])
+                    self.t1_A_list += [t11]
+                    self.t2_A_list += [t21]
+
                 # Create transfer matrices
                 transfer_matrices[j] = create_transfer_matrix_list(
                     self.splines[self.mapping_list[i][j]].V, 
@@ -329,6 +336,7 @@ class NonMatchingCoupling(object):
                 self.transfer_matrices_control_list[i][1], 
                 self.alpha_d_list[i], self.alpha_r_list[i], 
                 self.mortar_vars[i][0], self.mortar_vars[i][1], 
+                self.t1_A_list[i], self.t2_A_list[i], 
                 dx_m=dx_m)
 
             # An initial check for penalty energy, if ``PE``is nan,
