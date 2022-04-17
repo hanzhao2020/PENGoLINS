@@ -47,22 +47,22 @@ class BSplineSurfacesConnectedEdges(object):
         connected_edges : list of OCC Geom_Curves
         """
         num_pts_lim_on_edge = 2
-        num_pts_check_on_edge = 5
+        num_pts_check_on_edge = 8
         max_pt_surf_dist_ratio = 2e-2
 
-        face0 = make_face(self.surf1, 1e-6)
+        face0 = make_face(self.surf1, 1e-9)
         edges0 = get_face_edges(face0)
         self.connected_edges0 = []
         for i in range(len(edges0)):
             int_cs = GeomAPI_IntCS(edges0[i], self.surf2)
             int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
-            if len(int_cs_coord) > num_pts_lim_on_edge:
+            if len(int_cs_coord) >= num_pts_lim_on_edge:
                 # There are more than 2 intersecting points between
                 # this edge and surface, then check ``num_pts_check_on_edge``
                 # number of points on the edge and get the max distance
-                # between these points and the surface, the the max distance
-                # is larger than a limit, this edge will not be treated 
-                # as intersection edge with the surface.
+                # between these points and the surface, if the the max 
+                # distance is larger than a limit, this edge will not be 
+                # treated as intersection edge with the surface.
                 first_para = edges0[i].FirstParameter()
                 last_para = edges0[i].LastParameter()
                 para_check = np.linspace(first_para, last_para, 
@@ -78,13 +78,13 @@ class BSplineSurfacesConnectedEdges(object):
                 if max_dist < max_pt_surf_dist_ratio*edge_length:
                     self.connected_edges0 += [edges0[i],]
 
-        face1 = make_face(self.surf2, 1e-6)
+        face1 = make_face(self.surf2, 1e-9)
         edges1 = get_face_edges(face1)
         self.connected_edges1 = []
         for i in range(len(edges1)):
             int_cs = GeomAPI_IntCS(edges1[i], self.surf1)
             int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
-            if len(int_cs_coord) > num_pts_lim_on_edge:
+            if len(int_cs_coord) >= num_pts_lim_on_edge:
                 first_para = edges1[i].FirstParameter()
                 last_para = edges1[i].LastParameter()
                 para_check = np.linspace(first_para, last_para, 
@@ -100,15 +100,20 @@ class BSplineSurfacesConnectedEdges(object):
                 if max_dist < max_pt_surf_dist_ratio*edge_length:
                     self.connected_edges1 += [edges1[i],]
 
-        if len(self.connected_edges0) == len(self.connected_edges1):
-            # If the number of intersecting edges between edges of surface 1
-            # and surface 2 and the number of intersecting edges between
-            # edges of surface 2 and surface 1 are the same, then the 
-            # intersecting edges are considered as connected edges.
-            # Else, there will be no connected edges.
+        # if len(self.connected_edges0) == len(self.connected_edges1):
+        #     # If the number of intersecting edges between edges of surface 1
+        #     # and surface 2 and the number of intersecting edges between
+        #     # edges of surface 2 and surface 1 are the same, then the 
+        #     # intersecting edges are considered as connected edges.
+        #     # Else, there will be no connected edges.
+        #     connected_edges = self.connected_edges0
+        # else:
+        #     connected_edges = []
+
+        if len(self.connected_edges0) >= len(self.connected_edges1):
             connected_edges = self.connected_edges0
         else:
-            connected_edges = []
+            connected_edges = self.connected_edges1
 
         return connected_edges
 
@@ -1083,7 +1088,7 @@ class OCCPreprocessing(object):
         if self.compute_int_is_done:
             raise RuntimeError("Surface-surface intersections have been "
                                "computed, cannot load data again.")
-            
+
         intersections_data = np.load(data_path+filename)
         self.compute_int_is_done = True
         self.num_intersections_all = int(intersections_data['name1'])
@@ -1092,9 +1097,6 @@ class OCCPreprocessing(object):
         self.intersections_para_coords = intersections_data['name4']
         self.intersections_length = intersections_data['name5']
         self.mortar_nels = intersections_data['name6']
-
-
-
 
 if __name__ == "__main__":
     pass
