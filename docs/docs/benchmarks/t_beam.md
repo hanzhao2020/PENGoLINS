@@ -171,8 +171,8 @@ print("Angle between the end of two"
 ```
 The computed angles are:
 ```
-Angle between the end of two patches (load end) = 89.993402.
-Angle between the end of two patches (free end) = 89.999692.
+Angle between the end of two patches (load end) = 89.992843.
+Angle between the end of two patches (free end) = 90.000250.
 ```
 Finally, we can save the results to pvd files and visualize them in ParaView. The displacement magnitude of the T-beam with a scale factor of 10 is shown.
 ```python

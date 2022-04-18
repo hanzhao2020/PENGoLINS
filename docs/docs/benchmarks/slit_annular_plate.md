@@ -232,8 +232,8 @@ Finally, the solutions are saved into the pvd files and we print out the vertica
 ```
 For verification, the referential vertical displacements from [Sze et al.](https://doi.org/10.1016/j.finel.2003.11.001) with maximum force density are 13.891 and 17.528 at points A and B, respectively. And the printed information of the above loop at the last step (maximum force density is applied) is:
 ```
-Vertical displacement at point A = 13.834587
-Vertical displacement at point B = 17.472546
+Vertical displacement at point A = 13.834648
+Vertical displacement at point B = 17.472605
 ```
 The QoIs from this demo have good agreements with the reference. The deformed slit annular plate under maximum force density is shown below.
 <p align="center">

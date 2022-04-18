@@ -218,7 +218,7 @@ print("Trailing edge tip vertical displacement: {:10.8f}.\n".format(QoI))
 ```
 We will get the following output, where the vertical displacement of the trailing edge tip is 0.01025676 m.
 ```
-Trailing edge tip vertical displacement: 0.01025676.
+Trailing edge tip vertical displacement: 0.01027094.
 ```
 Saving displacement functions to pvd files. The vertical displacement distribution of the eVTOL wing is shown below, where the wing displacement is scaled by a factor of 10.
 ```python

@@ -189,8 +189,8 @@ for j in range(len(spline_inds)):
 ```
 The printed QoI in this benchmark test:
 ```
-Quantity of interest for patch 3 = 0.30060742 (Reference value = 0.3006).
-Quantity of interest for patch 5 = 0.30060117 (Reference value = 0.3006).
+Quantity of interest for patch 3 = 0.30060833 (Reference value = 0.3006).
+Quantity of interest for patch 5 = 0.30060154 (Reference value = 0.3006).
 ```
 It's recommended to use ParaView for results visualization. The solutions can be saved to pvd files and rendered by ParaView.
 ```python

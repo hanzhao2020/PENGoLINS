@@ -23,7 +23,9 @@ doi = "https://doi.org/10.1016/j.camwa.2022.02.007",
 author = "H. Zhao and X. Liu and A. H. Fletcher and R. Xiang and J. T. Hwang and D. Kamensky"
 }
 ```
-A preprint of the above article can be found [here](https://github.com/LSDOlab/lsdo_bib/blob/main/pdf/zhao2022open.pdf).
+A preprint of the above article can be found [here](https://github.com/LSDOlab/lsdo_bib/blob/main/pdf/zhao2022open.pdf). We found that the penalty formulation in the published article may result in the large deformation residual stagnating for patches with an angle close to $180^\circ$. Thus, the code repository is updated using the penalty formulation from [Herrema et al.](https://doi.org/10.1016/j.cma.2018.08.038), where the intersection's tangent vector is approximated numerically.
+
+
 
 <!-- Insert figure -->
 <!-- <p align="center">
