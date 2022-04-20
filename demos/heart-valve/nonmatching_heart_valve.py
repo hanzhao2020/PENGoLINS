@@ -16,9 +16,10 @@ from PENGoLINS.nonmatching_coupling import *
 
 parameters["std_out_all_processes"] = False
 
-SAVE_PATH = "./"
-FILE_FOLDER = "results/"
-RESTART_PATH = SAVE_PATH+FILE_FOLDER+"restarts/"
+SAVE_PATH = "./results/"
+if not path.exists(SAVE_PATH):
+        os.mkdir(SAVE_PATH)
+RESTART_PATH = SAVE_PATH+"restarts/"
 viz = True
 out_skip = 10
 
@@ -34,24 +35,19 @@ def zero_bc(spline_generator, direction=0, side=0, n_layers=2):
 
 def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=2, 
                            zero_bcs=None, direction=0, side=0,
-                           zero_domain=None, fields=[0,1,2], index=0):
+                           zero_domain=None, fields=[0,1,2]):
     """
     Convert OCC Geom BSplineSurface to tIGAr ExtractedSpline.
     """
-    DIR = SAVE_PATH+FILE_FOLDER+"spline_data/extraction_"+str(index)
     quad_deg = surface.UDegree()*quad_deg_const
-    if path.exists(DIR):
-        spline = ExtractedSpline(DIR, quad_deg)
-    else:
-        spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
-        spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
-        if zero_bcs is not None:
-            zero_bcs(spline_generator, direction, side)
-        if zero_domain is not None:
-            for i in fields:
-                spline_generator.addZeroDofsByLocation(zero_domain(), i)
-        spline_generator.writeExtraction(DIR)
-        spline = ExtractedSpline(spline_generator, quad_deg)
+    spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
+    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
+    if zero_bcs is not None:
+        zero_bcs(spline_generator, direction, side)
+    if zero_domain is not None:
+        for i in fields:
+            spline_generator.addZeroDofsByLocation(zero_domain(), i)
+    spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
 # Check if restarting
@@ -96,13 +92,13 @@ preprocessor.refine_BSpline_surfaces(p, p,
 if mpirank == 0:
     print("Computing intersections...")
 intersections_data_filename = "intersections_data.npz"
-if path.exists(FILE_FOLDER+intersections_data_filename):
+if path.exists(RESTART_PATH+intersections_data_filename):
     preprocessor.load_intersections_data(intersections_data_filename,
-                                         data_path=FILE_FOLDER)
+                                         data_path=RESTART_PATH)
 else:
     preprocessor.compute_intersections(mortar_refine=mortar_refine)
     preprocessor.save_intersections_data(intersections_data_filename,
-                                         data_path=FILE_FOLDER) 
+                                         data_path=RESTART_PATH) 
 num_intersections = preprocessor.num_intersections_all
 
 if mpirank == 0:
@@ -118,8 +114,7 @@ bcs = [[0,0], [0,1], [None, None], [1,1]]*3
 for i in range(num_surfs):
     splines += [OCCBSpline2tIGArSpline(preprocessor.BSpline_surfs_refine[i], 
                                        zero_bcs=bcs_funcs[i], 
-                                       direction=bcs[i][0], 
-                                       side=bcs[i][1], index=i),]
+                                       direction=bcs[i][0], side=bcs[i][1]),]
 
 # Initialize non-matching problem
 nonmatching_problem = NonMatchingCoupling(splines, E, h_th, nu, 
@@ -320,25 +315,25 @@ if viz:
             F_files += [[],]
             for j in range(3):
                 # For shell patches' displacement
-                u_file_names[i] += [SAVE_PATH+FILE_FOLDER+"u"+str(i)
+                u_file_names[i] += [SAVE_PATH+"u"+str(i)
                                     +"_"+str(j)+"_file.pvd",]
                 u_files[i] += [File(nonmatching_problem.comm, 
                                     u_file_names[i][j]),]
                 # For shell patches' initial configuration
-                F_file_names[i] += [SAVE_PATH+FILE_FOLDER+"F"+str(i)
+                F_file_names[i] += [SAVE_PATH+"F"+str(i)
                                     +"_"+str(j)+"_file.pvd",]
                 F_files[i] += [File(nonmatching_problem.comm, 
                                     F_file_names[i][j]),]
                 if j == 2:
                     # For shell patches' weights
-                    F_file_names[i] += [SAVE_PATH+FILE_FOLDER+"F"+str(i)
+                    F_file_names[i] += [SAVE_PATH+"F"+str(i)
                                         +"_3_file.pvd",]
                     F_files[i] += [File(nonmatching_problem.comm, 
                                         F_file_names[i][3]),]
     # For fluid velocity and pressure
-    v_file_name = SAVE_PATH+FILE_FOLDER+"v"+"_file.pvd"
+    v_file_name = SAVE_PATH+"v"+"_file.pvd"
     v_file = File(v_file_name)
-    p_file_name = SAVE_PATH+FILE_FOLDER+"p"+"_file.pvd"
+    p_file_name = SAVE_PATH+"p"+"_file.pvd"
     p_file = File(p_file_name)
 output_file_name = "flow-rate"
 

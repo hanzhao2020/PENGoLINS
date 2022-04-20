@@ -15,11 +15,6 @@ The FSI analysis of the above heart valve without non-matching intersections usi
 
 The first step is to define the necessary parameters.
 ```python
-SAVE_PATH = "./"
-FILE_FOLDER = "results/"
-RESTART_PATH = SAVE_PATH+FILE_FOLDER+"restarts/"
-viz = True
-out_skip = 10
 h_th = Constant(0.04)  # Thickness
 E = Constant(1e7)
 nu = Constant(0.4)
@@ -59,11 +54,10 @@ def zero_bc(spline_generator, direction=0, side=0, n_layers=2):
 
 def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=2, 
                            zero_bcs=None, direction=0, side=0,
-                           zero_domain=None, fields=[0,1,2], index=0):
+                           zero_domain=None, fields=[0,1,2]):
     """
     Convert OCC Geom BSplineSurface to tIGAr ExtractedSpline.
     """
-    DIR = SAVE_PATH+FILE_FOLDER+"spline_data/extraction_"+str(index)
     quad_deg = surface.UDegree()*quad_deg_const
     spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
     spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
@@ -72,7 +66,6 @@ def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=2,
     if zero_domain is not None:
         for i in fields:
             spline_generator.addZeroDofsByLocation(zero_domain(), i)
-    spline_generator.writeExtraction(DIR)
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 ```
@@ -84,8 +77,7 @@ bcs = [[0,0], [0,1], [None, None], [1,1]]*3
 for i in range(num_surfs):
     splines += [OCCBSpline2tIGArSpline(preprocessor.BSpline_surfs_refine[i], 
                                        zero_bcs=bcs_funcs[i], 
-                                       direction=bcs[i][0], 
-                                       side=bcs[i][1], index=i),]
+                                       direction=bcs[i][0], side=bcs[i][1]),]
 ```
 With the information from the preprocessor and tIGAr extracted splines, we are ready to set up the non-matching problem.
 ```python
