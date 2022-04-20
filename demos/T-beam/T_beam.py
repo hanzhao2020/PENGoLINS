@@ -18,7 +18,7 @@ def create_surf(pts, num_el0, num_el1, p):
 
 def create_spline(srf, num_field, BCs=[0,1]):
     spline_mesh = NURBSControlMesh(srf, useRect=False)
-    spline_generator = EqualOrderSpline(worldcomm, num_field, spline_mesh)
+    spline_generator = EqualOrderSpline(COMM, num_field, spline_mesh)
 
     for field in range(num_field):
         scalar_spline = spline_generator.getScalarSpline(field)
@@ -33,10 +33,10 @@ def create_spline(srf, num_field, BCs=[0,1]):
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
+COMM = worldcomm
 E = Constant(1.0e7)
 nu = Constant(0.)
 h_th = Constant(0.1)
-tip_load = -10.
 
 L = 20.
 w = 2.
@@ -49,7 +49,7 @@ pts1 = [[0., 0., 0.], [0.,0.,-h],\
         [0., L, 0.], [0., L, -h]]
 
 
-pc_list = [1.0e3,]
+pc_list = [1.0e3]
 # # Uncomment the full pc_list to test different penalty coefficients
 # pc_list = [1.0e-3, 1.0e-1, 1.0e0, 1.0e1, 1.0e3, 1.0e5, 1.0e7]
 # num_el_list = [8, 16, 32, 64, 128, 256]
@@ -63,22 +63,23 @@ for penalty_coefficient in pc_list:
 
     num_el = 10
     # penalty_coefficient = 1e3
-    print("Number of elements:", num_el)
-    print("Penalty coefficient:", penalty_coefficient)
+    if mpirank == 0:
+        print("Number of elements:", num_el)
+        print("Penalty coefficient:", penalty_coefficient)
     p = 3
     num_el0 = num_el
     num_el1 = num_el + 1
     p0 = p
     p1 = p
-
-    print("Creating geometry...")
+    if mpirank == 0:
+        print("Creating geometry...")
     srf0 = create_surf(pts0, int(num_el0/2), num_el0, p0)
     srf1 = create_surf(pts1, int(num_el1/2), num_el1, p1)
     spline0 = create_spline(srf0, num_field, BCs=[0,1])
     spline1 = create_spline(srf1, num_field, BCs=[0,1])
 
     splines = [spline0, spline1]
-    problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
+    problem = NonMatchingCoupling(splines, E, h_th, nu, comm=COMM)
 
     mortar_nels = [2*num_el1]
     problem.create_mortar_meshes(mortar_nels)
@@ -101,6 +102,8 @@ for penalty_coefficient in pc_list:
 
     source_terms = []
     residuals = []
+    # PointSource will be applied mpisize times in parallel
+    tip_load = -10./MPI.size(COMM)
     f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
     ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
     ps_list = [ps0,]
@@ -121,9 +124,14 @@ for penalty_coefficient in pc_list:
     ########## Measure displacement and angles of intertest ##########
     # z-displacement at load point
     xi = array([1.0, 1.0])
-    z_disp = -problem.spline_funcs[0](xi)[2]/spline0.cpFuncs[3](xi)
-    print("Displacement at load point in z direction = {:8.6f}."\
-          .format(z_disp))
+    z_disp_hom = eval_func(problem.splines[0].mesh, 
+                           problem.spline_funcs[0][2], xi)
+    w = eval_func(problem.splines[0].mesh, 
+                  problem.splines[0].cpFuncs[3], xi)
+    z_disp = -z_disp_hom/w
+    if mpirank == 0:
+        print("Displacement at load point in z direction = {:8.6f}."
+              .format(z_disp))
 
     # Measure angle between two patches at the end
     EPS = 1.0e-2
@@ -150,10 +158,11 @@ for penalty_coefficient in pc_list:
 
     theta_load = vec_angle(vec1_load, vec2)
     theta_free = vec_angle(vec1_free, vec2)
-    print("Angle between the end of two "
-        "patches (load end) = {:8.6f}.".format(theta_load))
-    print("Angle between the end of two"
-        " patches (free end) = {:8.6f}.".format(theta_free))
+    if mpirank == 0:
+        print("Angle between the end of two patches (load end) = {:8.6f}."
+              .format(theta_load))
+        print("Angle between the end of two patches (free end) = {:8.6f}."
+              .format(theta_free))
 
     # Measure twist angle between two ends of vertical patches
     xi2_pin = [array([0., 0.]), array([0.+EPS, 0.])]
@@ -172,7 +181,9 @@ for penalty_coefficient in pc_list:
     vec2_pin = pts2_pin[1] - pts2_pin[0]
     vec2_free = pts2_free[1] - pts2_free[0]
     theta_twist = vec_angle(vec2_pin, vec2_free)
-    print("Twist angle for vertical patch = {:8.6f}.".format(theta_twist))
+    if mpirank == 0:
+        print("Twist angle for vertical patch = {:8.6f}."
+              .format(theta_twist))
 
     z_disp_list += [z_disp]
     theta_free_list += [theta_free,]
@@ -186,37 +197,38 @@ for i in range(problem.num_splines):
         save_path=SAVE_PATH, save_cpfuncs=True, comm=problem.comm)
 
 if len(pc_list) > 1:
-    # # Plot angle w.r.t. the penalty coefficient
-    plt.figure()
-    plt.plot(pc_list, z_disp_list, '-*', 
-            label="Vertical displacement on load point")
-    plt.xscale('log')
-    plt.legend()
-    plt.grid()
-    plt.xlabel("Penalty coefficient")
-    plt.ylabel("Displacement")
-    plt.title("Displacement for T-beam problem with 2 patches")
+    if mpirank == 0:
+        # # Plot angle w.r.t. the penalty coefficient
+        plt.figure()
+        plt.plot(pc_list, z_disp_list, '-*', 
+                label="Vertical displacement on load point")
+        plt.xscale('log')
+        plt.legend()
+        plt.grid()
+        plt.xlabel("Penalty coefficient")
+        plt.ylabel("Displacement")
+        plt.title("Displacement for T-beam problem with 2 patches")
 
-    plt.figure()
-    plt.plot(pc_list, theta_load_list, '-*', label="Angle of the load side")
-    plt.plot(pc_list, theta_free_list, '-*', label="Angle of the free side")
-    plt.xscale('log')
-    plt.legend()
-    plt.grid()
-    plt.xlabel("Penalty coefficient")
-    plt.ylabel("Angle")
-    plt.title("Angle for T-beam problem with 2 patches")
+        plt.figure()
+        plt.plot(pc_list, theta_load_list, '-*', label="Angle of the load side")
+        plt.plot(pc_list, theta_free_list, '-*', label="Angle of the free side")
+        plt.xscale('log')
+        plt.legend()
+        plt.grid()
+        plt.xlabel("Penalty coefficient")
+        plt.ylabel("Angle")
+        plt.title("Angle for T-beam problem with 2 patches")
 
-    plt.figure()
-    plt.plot(pc_list, theta_twist_list, '-*', 
-             label="Twist angle of vertical path")
-    plt.xscale('log')
-    plt.legend()
-    plt.grid()
-    plt.xlabel("Penalty coefficient")
-    plt.ylabel("Twist")
-    plt.title("Twist for T-beam problem with 2 patches")
-    plt.show()
+        plt.figure()
+        plt.plot(pc_list, theta_twist_list, '-*', 
+                 label="Twist angle of vertical path")
+        plt.xscale('log')
+        plt.legend()
+        plt.grid()
+        plt.xlabel("Penalty coefficient")
+        plt.ylabel("Twist")
+        plt.title("Twist for T-beam problem with 2 patches")
+        plt.show()
 
 """
 Visualization with Paraview:
