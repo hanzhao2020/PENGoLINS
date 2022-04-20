@@ -579,7 +579,7 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500,
     ind_off_global_col_all = comm.allgather(ind_off_global_col)
 
     for i in range(A.getNestSize()[0]):
-        ind_off_local_col = np.zeros(mpisize)
+        ind_off_local_col = np.zeros(MPI.size(comm))
         for j in range(A.getNestSize()[1]):
             sub_mat_size_row = A_sub_size_row_list[i]
             sub_mat_size_col = A_sub_size_col_list[j]
@@ -597,7 +597,7 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500,
                         sub_mat.getValuesCSR()
                     mat_indices_global = mat_indices.copy()
 
-                    for col_range_iter in range(mpisize):
+                    for col_range_iter in range(MPI.size(comm)):
                         # Indices in current column ownership range
                         ind_right = np.where(mat_indices >= 
                             sub_mat_range_col_all[col_range_iter][0])
@@ -640,7 +640,7 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500,
                     # and create column indices in global level
                     mat_vals_subs = []
                     col_ind_subs = []
-                    for col_range_iter in range(mpisize):
+                    for col_range_iter in range(MPI.size(comm)):
                         mat_vals_subs += [mat_vals[:,
                             sub_mat_range_col_all[col_range_iter][0]:
                             sub_mat_range_col_all[col_range_iter][1]]]
@@ -657,11 +657,11 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500,
                               ind_off_local_row + ind_off_global_row \
                               + sub_mat_size_row[0], dtype='int32')
                     # Set values in dense format
-                    for col_range_iter in range(mpisize):
+                    for col_range_iter in range(MPI.size(comm)):
                         A_new.setValues(row_ind, col_ind_subs[col_range_iter], 
                                         mat_vals_subs[col_range_iter])
             # Update column indices offset 
-            for col_range_iter in range(mpisize):
+            for col_range_iter in range(MPI.size(comm)):
                 ind_off_local_col[col_range_iter] \
                     += sub_mat_size_col_all[col_range_iter][0]
         # Update row indices offset
@@ -1032,7 +1032,7 @@ def generate_mortar_mesh(pts=None, num_el=None, data=None, comm=worldcomm):
         f.close()
         
     MPI.barrier(comm)    
-    mesh = Mesh(MESH_FILE_NAME)
+    mesh = Mesh(comm, MESH_FILE_NAME)
 
     if MPI.rank(comm) == 0:
         os.remove(MESH_FILE_NAME)

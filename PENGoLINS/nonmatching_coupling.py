@@ -354,7 +354,7 @@ class NonMatchingCoupling(object):
                 self.transfer_matrices_list[i][0], 
                 self.transfer_matrices_list[i][1])
             dRm_dum_list = penalty_linearization(Rm_list, 
-                self.mortar_vars[i][0], self.mortar_vars[i][1])
+                self.mortar_vars[i][0], self.mortar_vars[i][1])            
             dRm_dum = transfer_penalty_linearization(dRm_dum_list, 
                 self.transfer_matrices_list[i][0], 
                 self.transfer_matrices_list[i][1])
@@ -498,7 +498,7 @@ class NonMatchingCoupling(object):
             # In parallel, create a new aij matrix that have the 
             # same entries with original nest matrix to solve
             # it using Dolfin direct solver.
-            if mpisize == 1:
+            if MPI.size(self.comm) == 1:
                 self.A.convert("seqaij")
             else:
                 self.A = create_aijmat_from_nestmat(self.A, self.A_list, 
@@ -590,7 +590,7 @@ class NonMatchingCoupling(object):
             self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
 
             if solver == "direct":
-                if mpisize == 1:
+                if MPI.size(self.comm) == 1:
                     self.A.convert("seqaij")
                 else:
                     self.A = create_aijmat_from_nestmat(self.A, self.A_list, 

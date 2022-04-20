@@ -235,10 +235,12 @@ std::shared_ptr<PETScMatrix> PETScDMCollectionTemp::create_transfer_matrix
   // Get coarse mesh and dimension of the domain
   dolfin_assert(coarse_space.mesh());
   const Mesh meshc = *coarse_space.mesh();
+  const Mesh meshf = *fine_space.mesh();
   std::size_t dim = meshc.geometry().dim();
 
   // MPI communicator, size and rank
-  const MPI_Comm mpi_comm = meshc.mpi_comm();
+  // const MPI_Comm mpi_comm = meshc.mpi_comm();
+  const MPI_Comm mpi_comm = meshf.mpi_comm();
   const unsigned int mpi_size = MPI::size(mpi_comm);
 
   // Initialise bounding box tree and dofmaps
@@ -643,10 +645,12 @@ std::shared_ptr<PETScMatrix> PETScDMCollectionTemp::create_transfer_matrix_parti
   // Get coarse mesh and dimension of the domain
   dolfin_assert(coarse_space.mesh());
   const Mesh meshc = *coarse_space.mesh();
+  const Mesh meshf = *fine_space.mesh();
   std::size_t dim = meshc.geometry().dim();
 
   // MPI communicator, size and rank
-  const MPI_Comm mpi_comm = meshc.mpi_comm();
+  // const MPI_Comm mpi_comm = meshc.mpi_comm();
+  const MPI_Comm mpi_comm = meshf.mpi_comm();
   const unsigned int mpi_size = MPI::size(mpi_comm);
 
   // Initialise bounding box tree and dofmaps
