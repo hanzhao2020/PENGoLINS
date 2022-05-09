@@ -17,6 +17,7 @@ from tIGAr.BSplines import *
 from PENGoLINS.transfer_matrix import *
 from PENGoLINS.math_utils import *
 
+DOLFIN_CONSTANT = function.constant.Constant
 DOLFIN_FUNCTION = function.function.Function
 DOLFIN_VECTOR = cpp.la.Vector
 DOLFIN_MATRIX = cpp.la.Matrix
@@ -195,27 +196,35 @@ def apply_bcs_vec(spline, v):
     v_PETSc.assemblyBegin()
     v_PETSc.assemblyEnd()
 
-def apply_bcs_mat(spline, A, diag=1):
+def apply_bcs_mat(spline0, A, spline1=None, diag=1):
     """
-    Apply boundary conditions of ``spline`` to matrix ``A``.
+    Apply boundary conditions of ``spline0`` and ``spline1``(if given) 
+    to matrix ``A``.
 
     Parameters
     ----------
-    spline : ExtractedSpline
-    A : dolfin Matrix, dolfin PETScMatrix, PETSc.Mat or None
+    spline0 : ExtractedSpline
+    A : dolfin Matrix, dolfin PETScMatrix, PETSc.Mat
+    spline1 : ExtrctedSpline, default is None
     diag : int, optional, default is 1
         Values put in all diagonals of eliminated rows.
         1 is for diagonal blocks, 0 is for off-diagonal blocks.
     """
     A_PETSc = arg2m(A)
 
-    if diag == 0:
-        A_PETSc.zeroRows(spline.zeroDofs, diag=diag)
+    if spline1 is None:
+        A_PETSc.zeroRowsColumns(spline0.zeroDofs, diag=diag)
     else:
-        A_PETSc.zeroRowsColumns(spline.zeroDofs, diag=diag)
+        A_PETSc.zeroRows(spline0.zeroDofs, diag=diag)
+        A_PETSc = A_PETSc.copy()
+        A_PETSc.transpose()
+        A_PETSc.zeroRows(spline1.zeroDofs, diag=diag)
+        A_PETSc.transpose()
 
     A_PETSc.assemblyBegin()
     A_PETSc.assemblyEnd()
+
+    return A_PETSc
 
 def IGA2FE(spline, u_IGA, applyBCs=False):
     """
@@ -277,8 +286,9 @@ def zero_petsc_vec(num_el, vec_type=None, comm=worldcomm):
     """
     v = PETSc.Vec(comm)
     v.create(comm=comm)
-    if vec_type is not None:
-        v.setType(vec_type)
+    if vec_type is None:
+        vec_type = 'mpi'
+    v.setType(vec_type)
     v.setSizes(num_el)
     v.setUp()
     v.assemble()
@@ -303,8 +313,9 @@ def zero_petsc_mat(row, col, mat_type=None,
     """
     A = PETSc.Mat(comm)
     A.create(comm=comm)
-    if mat_type is not None:
-        A.setType(mat_type)
+    if mat_type is None:
+        mat_type = 'mpiaij'    
+    A.setType(mat_type)
     A.setSizes([row, col])
     A.setPreallocationNNZ([PREALLOC, PREALLOC])
     A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
@@ -531,13 +542,13 @@ def create_aijmat_from_nestmat(A, A_list, PREALLOC=500,
     -------
     A_new: petsc4py.PETSc.Mat of type aij
     """
-    if mpirank == 0:
-        if csr:
-            print("Creating aij PETSc matrix from nest PETSc matrix "
-                  "in csr format ...")
-        else:
-            print("Creating aij PETSc matrix from nest PETSc matrix "
-                  "in dense format ...")
+    # if mpirank == 0:
+    #     if csr:
+    #         print("Creating aij PETSc matrix from nest PETSc matrix "
+    #               "in csr format ...")
+    #     else:
+    #         print("Creating aij PETSc matrix from nest PETSc matrix "
+    #               "in dense format ...")
 
     # Get information of global nest matrix
     A_size_row, A_size_col = A.getSizes()
@@ -800,7 +811,7 @@ def solve_nonmatching_mat(A, x, b, solver="direct",
         solver.ksp().reset()
 
 def save_results(spline, u, index, file_name="u", save_path=SAVE_PATH, 
-                 folder="results/", save_cpfuncs=True, comm=worldcomm):
+                 folder="results/", save_cpfuncs=True, comm=None):
     """
     Save results to .pvd file.
 
@@ -809,9 +820,13 @@ def save_results(spline, u, index, file_name="u", save_path=SAVE_PATH,
     spline : ExtractedSpline
     u : dolfin Function
     index : int, index of the file
+    file_name : str, optional, default is "u".
+    save_path : str, optional
+    folder : str, optional, default is "results/"
     save_cpfuncs : bool, optional
         If True, save spline.cpFuncs to pvd file. Default is True
-    save_path : str, optional
+    comm : mpi4py.MPI.Intracomm, optional, default is None.
+    
 
     To view the saved files in Paraview:
     ------------------------------------------------------------------------------
@@ -830,6 +845,9 @@ def save_results(spline, u, index, file_name="u", save_path=SAVE_PATH,
     for index = 0, 1, 2, 3, etc.
     """
     u_split = u.split()
+
+    if comm is None:
+        comm = spline.comm
 
     if len(u_split) == 0:
         name_disp = file_name + str(index)
