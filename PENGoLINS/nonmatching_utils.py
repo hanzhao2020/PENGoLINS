@@ -336,7 +336,7 @@ def penalty_differentiation(PE, vars1=[], vars2=[]):
 
     Returns
     -------
-    R_list : list of ufl Forms, rank 2
+    R_list : list of ufl Forms, rank 2, 2x3
     """
     R1_list = []
     R2_list = []
@@ -353,13 +353,13 @@ def penalty_linearization(R_list, vars1=[], vars2=[]):
 
     Parameters
     -----------
-    R_list : list of ufl Forms, rank 2
+    R_list : list of ufl Forms, rank 2, 2x3
     vars1 : list of dolfin Functions
     vars2 : list of dolfin Functions
 
     Returns
     -------
-    dR_du_list : list of ufl Forms, rank 4
+    dR_du_list : list of ufl Forms, rank 4, 2x2x3x3
     """
     vars_list = [vars1, vars2]
     num_R = len(R_list[0]) #3
@@ -391,7 +391,7 @@ def transfer_penalty_differentiation(R_list, A1_list, A2_list):
 
     Returns
     -------
-    R : list of petsc4py.PETSc.Vecs
+    R : list of petsc4py.PETSc.Vecs, size of 2
     """
     R = [None for i1 in range(len(R_list))]
     A_list = [A1_list, A2_list]
@@ -416,7 +416,7 @@ def transfer_penalty_linearization(dR_du_list, A1_list, A2_list):
 
     Returns
     -------
-    dR_du : list of petsc4py.PETSc.Mats, rank 2 
+    dR_du : list of petsc4py.PETSc.Mats, rank 2, size of 2x2
     """
     dR_du = [[None for i1 in range(len(dR_du_list[0]))] \
                    for i2 in range(len(dR_du_list))]

@@ -107,7 +107,7 @@ if mpirank == 0:
     print("Total DoFs:", preprocessor.total_DoFs)
     print("Number of intersections:", preprocessor.num_intersections_all)
 ```
-There are 5904 DoFs in total and 87 intersections in the wing geometry.
+There are 5208 DoFs in total and 87 intersections in the wing geometry.
 
 Users can choose to visualize the reconstructed NURBS patches and intersections using the following code:
 ```python
@@ -216,9 +216,9 @@ w = eval_func(problem.splines[right_srf_ind].mesh,
 QoI = z_disp_hom/w
 print("Trailing edge tip vertical displacement: {:10.8f}.\n".format(QoI))
 ```
-We will get the following output, where the vertical displacement of the trailing edge tip is 0.01025676 m.
+We will get the following output, where the vertical displacement of the trailing edge tip is 0.01034184 m.
 ```
-Trailing edge tip vertical displacement: 0.01027094.
+Trailing edge tip vertical displacement: 0.01034184.
 ```
 Saving displacement functions to pvd files. The vertical displacement distribution of the eVTOL wing is shown below, where the wing displacement is scaled by a factor of 10.
 ```python

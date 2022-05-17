@@ -67,6 +67,8 @@ num_pts_eval = [16]*num_surfs
 u_insert_list = [8]*num_surfs
 v_insert_list = [8]*num_surfs
 ref_level_list = [1]*num_surfs
+# For the two small NURBS patches at the wingtip, we control the
+# refinement level less than 3 to prevent over refinement.
 for i in [4,5]:
     if ref_level_list[i] > 4:
         ref_level_list[i] = 2
@@ -78,6 +80,16 @@ v_num_insert = []
 for i in range(len(u_insert_list)):
     u_num_insert += [ref_level_list[i]*u_insert_list[i]]
     v_num_insert += [ref_level_list[i]*v_insert_list[i]]
+
+# # Meshes that are close to the results in the paper
+# u_insert_list = [16, 15, 14, 13, 1, 1] \
+#               + [16, 17, 18] + [4]*12  
+# v_insert_list = [8, 7, 6, 5, 12, 11] \
+#               + [1]*3 + [1]*12
+# mesh_ref = 1
+
+# u_num_insert = [i*mesh_ref for i in u_insert_list]
+# v_num_insert = [i*mesh_ref for i in v_insert_list]
 
 # Geometry preprocessing and surface-surface intersections computation
 preprocessor = OCCPreprocessing(wing_surfaces, reparametrize=True, 

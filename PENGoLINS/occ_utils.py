@@ -1010,8 +1010,10 @@ def correct_BSpline_surface_element_shape(occ_bs_surf,
             # print("Removing over refined knots")
             # print("num_insert_max:", num_insert_max)
             num_insert_ratio = num_insert_max/num_knots_max
-            num_u_insert = ceil(num_u_knots*num_insert_ratio)
-            num_v_insert = ceil(num_v_knots*num_insert_ratio)
+            # num_u_insert = ceil(num_u_knots*num_insert_ratio)
+            # num_v_insert = ceil(num_v_knots*num_insert_ratio)
+            num_u_insert = floor(num_u_knots*num_insert_ratio)
+            num_v_insert = floor(num_v_knots*num_insert_ratio)
             # print("num_u_insert:", num_u_insert)
             # print("num_v_insert:", num_v_insert)
 
