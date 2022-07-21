@@ -117,7 +117,7 @@ def A_x_b(A, x, b):
     b : dolfin Function, dolfin Vector, dolfin PETScVector
         or petsc4py.PETSc.Vec
     """
-    return m2p(A).mult(v2p(x), v2p(b))
+    return arg2m(A).mult(arg2v(x), arg2v(b))
 
 def AT_x(A, x):
     """

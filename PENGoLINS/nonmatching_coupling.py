@@ -129,7 +129,7 @@ class NonMatchingCoupling(object):
             else:
                 self.nu = [nu for i in range(self.num_splines)]
 
-    def _create_transfer_matrices_thickness(self):
+    def _create_transfer_matrices_thickness(self, mortar_parametric_coords):
         """
         Create transfer matrices for the thickness of the spline patches
         and mortar meshes, if the thickness are dolfin functions. For 
@@ -139,6 +139,8 @@ class NonMatchingCoupling(object):
         for i in range(self.num_interfaces):
             transfer_matrices_thickness = [[], []]
             for j in range(len(self.mapping_list[i])):
+                move_mortar_mesh(self.mortar_meshes[i], 
+                                 mortar_parametric_coords[i][j])
                 transfer_matrices_thickness[j] = create_transfer_matrix(
                     self.h_th[self.mapping_list[i][j]].function_space(), 
                     self.Vms_control[i])
@@ -191,6 +193,10 @@ class NonMatchingCoupling(object):
                             mortar_mesh in self.mortar_meshes]
         # Mortar meshes' functions
         self.mortar_funcs = [[Function(Vm), Function(Vm)] for Vm in self.Vms]
+        # Functions for thickness on moratr mesh
+        if self.h_th_is_function:
+            self.mortar_h_th = [[Function(Vmc), Function(Vmc)] for Vmc in 
+                                 self.Vms_control]
 
     def create_mortar_funcs_derivative(self, family, degree):
         """
@@ -237,7 +243,8 @@ class NonMatchingCoupling(object):
                     self.mortar_vars[i][j] += [self.mortar_funcs_dxi[k][i][j]]
 
     def mortar_meshes_setup(self, mapping_list, mortar_parametric_coords, 
-                            penalty_coefficient=1000):
+                            penalty_coefficient=1000, 
+                            penalty_method="minimum"):
         """
         Set up coupling of non-matching system for mortar meshes.
 
@@ -246,8 +253,10 @@ class NonMatchingCoupling(object):
         mapping_list : list of ints
         mortar_parametric_coords : list of ndarrays
         penalty_coefficient : float, optional, default is 1000
+        penalty_method : str, {'minimum', 'maximum', 'average'}
         """
         self._create_mortar_vars()
+        self.mortar_parametric_coords = mortar_parametric_coords
         self.mapping_list = mapping_list
         self.penalty_coefficient = penalty_coefficient
         self.t1_A_list = []
@@ -303,8 +312,9 @@ class NonMatchingCoupling(object):
             self.hm_avg_list += [hm_avg,]
 
         if self.h_th_is_function:
-            self._create_transfer_matrices_thickness()
-        self.penalty_parameters()
+            self._create_transfer_matrices_thickness(
+                self.mortar_parametric_coords)
+        self.penalty_parameters(method=penalty_method)
 
     def penalty_parameters(self, E=None, h_th=None, nu=None, 
                            method='minimum'):
@@ -318,13 +328,7 @@ class NonMatchingCoupling(object):
         nu : ufl Constant or list, Poisson's ratio
         method: str, {'minimum', 'maximum', 'average'}
         """
-        # First initialize material and geometric paramters, then
-        # check if h_th is DOLFIN function and if the transfer
-        # matrices are created for the thickness.
         self._init_properties(E, h_th, nu)
-        if (self.h_th_is_function and not 
-            hasattr(self, 'transfer_matrices_thickness_list')):
-            self._create_transfer_matrices_thickness()
 
         self.alpha_d_list = []
         self.alpha_r_list = []
@@ -353,12 +357,14 @@ class NonMatchingCoupling(object):
             # self.alpha_r_list += [alpha_r,]
 
             if self.h_th_is_function:
-                h_th0 = Function(self.Vms_control[i])
-                h_th1 = Function(self.Vms_control[i])
                 A_x_b(self.transfer_matrices_thickness_list[i][0],
-                      self.h_th[s_ind0].vector(), h_th0.vector())
+                      self.h_th[s_ind0].vector(), 
+                      self.mortar_h_th[i][0].vector())
                 A_x_b(self.transfer_matrices_thickness_list[i][1],
-                      self.h_th[s_ind1].vector(), h_th1.vector())
+                      self.h_th[s_ind1].vector(), 
+                      self.mortar_h_th[i][1].vector())
+                h_th0 = self.mortar_h_th[i][0]
+                h_th1 = self.mortar_h_th[i][1]
             else:
                 h_th0 = self.h_th[s_ind0]
                 h_th1 = self.h_th[s_ind1]
@@ -388,7 +394,8 @@ class NonMatchingCoupling(object):
                 alpha_r = Constant(self.penalty_coefficient)\
                           /self.hm_avg_list[i]*(max_Dij0+max_Dij1)*0.5
             else:
-                raise TypeError("Method:", method, "is not supported.")
+                raise TypeError("Penalty method:", method, 
+                                "is not supported.")
             self.alpha_d_list += [alpha_d,]
             self.alpha_r_list += [alpha_r,]
 
@@ -408,10 +415,8 @@ class NonMatchingCoupling(object):
             deriv_residuals = [derivative(residuals[i], self.spline_funcs[i]) 
                                           for i in range(self.num_splines)]
 
-        # Convert residuals and derivatives from ufl.form.From
-        # to dolfin.fem.form.Form
-        self.residuals = [Form(res) for res in residuals]
-        self.deriv_residuals = [Form(Dres) for Dres in deriv_residuals]
+        self.residuals = residuals
+        self.deriv_residuals = deriv_residuals
 
         if point_sources is None and point_source_inds is not None:
             if MPI.rank(self.comm) == 0:
