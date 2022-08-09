@@ -189,9 +189,9 @@ np.savez(data_file, force_ref=point_load_ref, w_ref=w_ref,
                     force=point_load_list, w=w_list)
 
 plt.figure()
-plt.plot(w_ref, point_load_ref, "o", mfc='none', 
-         color='black', label='Isotropic reference')
-plt.plot(w_list, point_load_list, "-.", 
+plt.plot(w_ref, point_load_ref, "o--", mfc='none', linewidth=0.5, 
+         color='black', label='Reference')
+plt.plot(w_list, point_load_list, "-*", 
          color='tab:blue', label='Isotropic material')
 plt.xlabel("Central deflection")
 plt.ylabel("Point load")

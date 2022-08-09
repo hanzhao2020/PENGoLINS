@@ -144,9 +144,9 @@ problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
 
 # For thickness 12.7 and lamination [0/90/0]
 force_ratio_ref = [0.0546, 0.1245, 0.1938, 0.2494, 0.2925, 0.3244,
-                    0.3459, 0.3582, 0.3618]
+                    0.3459, 0.3582]
 w_ref = [0.807, 1.956, 3.281, 4.548, 5.753, 6.892,
-              7.961, 8.959, 9.884]
+              7.961, 8.959]
 
 # # For thickness 12.7 and lamination [90/0/90]
 # force_ratio_ref = [0.0556, 0.1299, 0.2090, 0.2784, 0.3389, 0.3914,
