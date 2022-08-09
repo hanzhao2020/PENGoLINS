@@ -2,6 +2,7 @@ from tIGAr.NURBS import *
 from PENGoLINS.nonmatching_coupling import *
 from PENGoLINS.igakit_utils import *
 from igakit.io import VTK
+import matplotlib.pyplot as plt
 
 # Geometry creation using igakit
 def create_roof_srf(num_el, p, R, angle_lim=[50,130], z_lim=[0,1]):
@@ -46,8 +47,8 @@ E = Constant(3102.75)
 nu = Constant(0.3)
 p = 3
 
-force_ratio = 0.0877
-QoI_ref = 0.693
+# force_ratio = 0.0877
+# QoI_ref = 0.693
 
 # Central angles in radians
 angles = [np.pi/2-theta, np.pi/2-theta/2, np.pi/2+theta/2, np.pi/2+theta]
@@ -127,38 +128,75 @@ problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
                             penalty_coefficient)
 
-f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+force_ratio_ref = [0.0877, 0.1980, 0.3473, 0.4686, 0.5647, 0.6381,
+                    0.6908, 0.7246, 0.7412]
+w_ref = [0.693, 1.638, 3.087, 4.477, 5.802, 7.057,
+              8.237, 9.339, 10.358]
 
-ps_ind = [4,]
-ps0 = PointSource(splines[ps_ind[0]].V.sub(1), Point(.5,.5), 
-                  force_ratio*P_max)
-ps_list = [ps0,]
+force_ratio_list = np.array(force_ratio_ref)
+w_list = []
 
-source_terms = []
-residuals = []
-for i in range(len(splines)):
-    source_terms += [inner(f0, problem.splines[i].rationalize(
-    problem.spline_test_funcs[i]))*problem.splines[i].dx]
-    residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
-        problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
-problem.set_residuals(residuals, point_sources=ps_list,
-                      point_source_inds=ps_ind)
+ps_w = splines[4].cpFuncs[3](np.array([0.5,0.5]))
 
-if mpirank == 0:
-    print("Solving linear non-matching problem...")
-problem.solve_nonlinear_nonmatching_problem(solver="direct")
+for step, force_ratio in enumerate(force_ratio_list):
 
-# Print quantity of interest
-spline_ind = 4
-xi = array([0.5,0.5])
-disp_y_hom = eval_func(problem.splines[spline_ind].mesh, 
-                   problem.spline_funcs[spline_ind][1], xi)
-w = eval_func(problem.splines[spline_ind].mesh, 
-              problem.splines[spline_ind].cpFuncs[3], xi)
-QoI_temp = -disp_y_hom/w
-if mpirank == 0:
-    print("Quantity of interest for patch {} = {:10.8f} (Reference "
-          "value = {}).".format(spline_ind, QoI_temp, QoI_ref))
+    f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+
+    ps_ind = [4,]
+    ps0 = PointSource(splines[ps_ind[0]].V.sub(1), Point(.5,.5), 
+                      force_ratio*P_max/ps_w)
+    ps_list = [ps0,]
+
+    source_terms = []
+    residuals = []
+    for i in range(len(splines)):
+        source_terms += [inner(f0, problem.splines[i].rationalize(
+        problem.spline_test_funcs[i]))*problem.splines[i].dx]
+        residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
+            problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
+    problem.set_residuals(residuals, point_sources=ps_list,
+                          point_source_inds=ps_ind)
+
+    if mpirank == 0:
+        print("Solving linear non-matching problem...")
+    problem.solve_nonlinear_nonmatching_problem(solver="direct")
+
+    # Print quantity of interest
+    spline_ind = 4
+    xi = array([0.5,0.5])
+    disp_y_hom = eval_func(problem.splines[spline_ind].mesh, 
+                       problem.spline_funcs[spline_ind][1], xi)
+    w = eval_func(problem.splines[spline_ind].mesh, 
+                  problem.splines[spline_ind].cpFuncs[3], xi)
+    QoI = -disp_y_hom/w
+    if mpirank == 0:
+        print("Quantity of interest for patch {} = {:10.8f} (Reference "
+              "value = {}).".format(spline_ind, QoI, w_ref[step]))
+
+    w_list += [QoI,]
+
+
+
+point_load_ref = np.array(force_ratio_ref)*P_max
+point_load_list = np.array(force_ratio_list)*P_max
+
+point_load_ref = np.insert(point_load_ref, 0, 0)
+point_load_list = np.insert(point_load_list, 0, 0)
+w_ref = np.insert(w_ref, 0, 0)
+w_list = np.insert(w_list, 0, 0)
+data_file = 'hinged_cylin_iso_nonmatching.npz'
+np.savez(data_file, force_ref=point_load_ref, w_ref=w_ref,
+                    force=point_load_list, w=w_list)
+
+plt.figure()
+plt.plot(w_ref, point_load_ref, "o", mfc='none', 
+         color='black', label='Isotropic reference')
+plt.plot(w_list, point_load_list, "-.", 
+         color='tab:blue', label='Isotropic material')
+plt.xlabel("Central deflection")
+plt.ylabel("Point load")
+plt.legend()
+plt.show()
 
 SAVE_PATH = "./"
 for i in range(problem.num_splines):

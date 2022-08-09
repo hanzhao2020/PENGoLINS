@@ -11,10 +11,11 @@ def rotational_mat(alpha):
                     cos(phi)**2-sin(phi)**2]])
     return T
 
-def orthotropic_mat(E1, E2, nu12, nu21, G12):
+def orthotropic_mat(E1, E2, nu12, G12):
     """
     Return Orthotropic material matrix.
     """
+    nu21 = E2*nu12/E1
     mat_denom = 1-nu12*nu21
     D_ort = as_matrix([[E1/mat_denom, nu21*E1/mat_denom, 0],
                        [nu12*E2/mat_denom, E2/mat_denom, 0],

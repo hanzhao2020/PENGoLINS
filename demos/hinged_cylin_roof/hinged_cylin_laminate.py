@@ -3,6 +3,7 @@ from PENGoLINS.nonmatching_coupling import *
 from PENGoLINS.nonmatching_coupling_laminate import *
 from PENGoLINS.igakit_utils import *
 from igakit.io import VTK
+import matplotlib.pyplot as plt
 
 # Geometry creation using igakit
 def create_roof_srf(num_el, p, R, angle_lim=[0,np.pi], z_lim=[0,1]):
@@ -44,21 +45,21 @@ h_th = Constant(12.7)
 EL = Constant(3300)
 ET = Constant(1100)
 nuLT = Constant(0.25)
-nuTT = Constant(0.25)
+nuTL = ET*nuLT/EL
 GLT = Constant(660)
 
-# # For lamination [90, 0, 90]
+# # # For lamination [90, 0, 90]
 # alpha_list = [90, 0, 90]
-# force_ratio = 0.0556
-# QoI_ref = 0.649
+# # force_ratio = 0.0556
+# # QoI_ref = 0.649
 
-# # For lamination [0, 90, 0]
+# For lamination [0, 90, 0]
 alpha_list = [0, 90, 0]
 force_ratio = 0.0546
 QoI_ref = 0.807
 
 n_ply = len(alpha_list)
-D_ort = orthotropic_mat(ET, EL, nuTT, nuLT, GLT)
+D_ort = orthotropic_mat(ET, EL, nuTL, GLT)
 A_mat, B_mat, D_mat = laminate_ABD_mat(n_ply, h_th, D_ort, alpha_list)
 
 # Central angles in radians
@@ -140,47 +141,91 @@ problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
                             penalty_coefficient)
 
-# tip_load = force_ratio*P_max
-f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
 
-ps_ind = [4,]
-ps0 = PointSource(splines[ps_ind[0]].V.sub(1), Point(.5,.5), 
-                  force_ratio*P_max)
-ps_list = [ps0,]
+# For thickness 12.7 and lamination [0/90/0]
+force_ratio_ref = [0.0546, 0.1245, 0.1938, 0.2494, 0.2925, 0.3244,
+                    0.3459, 0.3582, 0.3618]
+w_ref = [0.807, 1.956, 3.281, 4.548, 5.753, 6.892,
+              7.961, 8.959, 9.884]
 
-source_terms = []
-residuals = []
-for i in range(len(splines)):
-    source_terms += [inner(f0, problem.splines[i].rationalize(
-    problem.spline_test_funcs[i]))*problem.splines[i].dx]
-    residuals += [SVK_residual_laminate(problem.splines[i], 
-                  problem.spline_funcs[i], 
-                  problem.spline_test_funcs[i], 
-                  h_th, A_mat, B_mat, D_mat, 
-                  source_terms[i])]
-problem.set_residuals(residuals, point_sources=ps_list,
-                      point_source_inds=ps_ind)
+# # For thickness 12.7 and lamination [90/0/90]
+# force_ratio_ref = [0.0556, 0.1299, 0.2090, 0.2784, 0.3389, 0.3914,
+#                    0.4365, 0.4748, 0.5070, 0.5336, 0.5550, 0.5716]
+# w_ref = [0.649, 1.581, 2.673, 3.740, 4.781, 5.794,
+#          6.777, 7.731, 8.654, 9.545, 10.404, 11.231]
 
-if mpirank == 0:
-    print("Solving linear non-matching problem...")
-problem.solve_nonlinear_nonmatching_problem(solver="direct")
+force_ratio_list = np.array(force_ratio_ref)
+w_list = []
 
-# Print quantity of interest
-spline_ind = 4
-xi = array([0.5,0.5])
-disp_y_hom = eval_func(problem.splines[spline_ind].mesh, 
-                   problem.spline_funcs[spline_ind][1], xi)
-w = eval_func(problem.splines[spline_ind].mesh, 
-              problem.splines[spline_ind].cpFuncs[3], xi)
-QoI_temp = -disp_y_hom/w
-if mpirank == 0:
-    print("Quantity of interest for patch {} = {:10.8f} (Reference "
-          "value = {}).".format(spline_ind, QoI_temp, QoI_ref))
+ps_w = splines[4].cpFuncs[3](np.array([0.5,0.5]))
+
+for step, force_ratio in enumerate(force_ratio_list):
+    print("Step {}, force ratio: {}".format(step, force_ratio))
+
+    # tip_load = force_ratio*P_max
+    f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+
+    ps_ind = [4,]
+    ps0 = PointSource(splines[ps_ind[0]].V.sub(1), Point(.5,.5), 
+                      force_ratio*P_max/ps_w)
+    ps_list = [ps0,]
+
+    source_terms = []
+    residuals = []
+    for i in range(len(splines)):
+        source_terms += [inner(f0, problem.splines[i].rationalize(
+        problem.spline_test_funcs[i]))*problem.splines[i].dx]
+        residuals += [SVK_residual_laminate(problem.splines[i], 
+                      problem.spline_funcs[i], 
+                      problem.spline_test_funcs[i], 
+                      h_th, A_mat, B_mat, D_mat, 
+                      source_terms[i])]
+    problem.set_residuals(residuals, point_sources=ps_list,
+                          point_source_inds=ps_ind)
+
+    if mpirank == 0:
+        print("Solving linear non-matching problem...")
+    problem.solve_nonlinear_nonmatching_problem(solver="direct")
+
+    # Print quantity of interest
+    spline_ind = 4
+    xi = array([0.5,0.5])
+    disp_y_hom = eval_func(problem.splines[spline_ind].mesh, 
+                       problem.spline_funcs[spline_ind][1], xi)
+    w = eval_func(problem.splines[spline_ind].mesh, 
+                  problem.splines[spline_ind].cpFuncs[3], xi)
+    QoI = -disp_y_hom/w
+    if mpirank == 0:
+        print("Quantity of interest for patch {} = {:10.8f} (Reference "
+              "value = {}).".format(spline_ind, QoI, w_ref[step]))
+    w_list += [QoI,]
+
+point_load_ref = np.array(force_ratio_ref)*P_max
+point_load_ref = np.insert(point_load_ref, 0, 0)
+point_load_list = np.array(force_ratio_list)*P_max
+point_load_list = np.insert(point_load_list, 0, 0)
+w_ref = np.insert(w_ref, 0, 0)
+w_list = np.insert(w_list, 0, 0)
+# data_file = 'hinged_cylin_90_0_90.npz'
+data_file = 'hinged_cylin_0_90_0.npz'
+np.savez(data_file, force_ref=point_load_ref, w_ref=w_ref, 
+                    force=point_load_list, w=w_list)
+
 # Save results to pvd files
 SAVE_PATH = "./"
 for i in range(problem.num_splines):
     save_results(problem.splines[i], problem.spline_funcs[i], i, 
                 save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
+
+plt.figure()
+plt.plot(w_ref, point_load_ref, "o--", mfc='none', linewidth=0.5, 
+         color='black', label='Lamination {} reference'.format(alpha_list))
+plt.plot(w_list, point_load_list, "-*", 
+         color='tab:blue', label='Lamination {} material'.format(alpha_list))
+plt.xlabel("Central deflection")
+plt.ylabel("Point load")
+plt.legend()
+plt.show()
 
 """
 Visualization with Paraview:
