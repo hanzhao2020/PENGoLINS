@@ -1089,7 +1089,7 @@ class OCCPreprocessing(object):
             raise RuntimeError("Surface-surface intersections have been "
                                "computed, cannot load data again.")
 
-        intersections_data = np.load(data_path+filename)
+        intersections_data = np.load(data_path+filename, allow_pickle=True)
         self.compute_int_is_done = True
         self.num_intersections_all = int(intersections_data['name1'])
         self.mapping_list = intersections_data['name2']

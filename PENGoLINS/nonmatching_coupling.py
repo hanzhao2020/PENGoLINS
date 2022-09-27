@@ -255,6 +255,7 @@ class NonMatchingCoupling(object):
         penalty_coefficient : float, optional, default is 1000
         penalty_method : str, {'minimum', 'maximum', 'average'}
         """
+        assert self.num_interfaces == len(mapping_list)
         self._create_mortar_vars()
         self.mortar_parametric_coords = mortar_parametric_coords
         self.mapping_list = mapping_list
@@ -264,6 +265,8 @@ class NonMatchingCoupling(object):
         self.transfer_matrices_list = []
         self.transfer_matrices_control_list = []
         self.transfer_matrices_linear_list = []
+        self.h0m_list = []
+        self.h1m_list = []
         self.hm_avg_list = []
 
         for i in range(self.num_interfaces):
@@ -309,6 +312,8 @@ class NonMatchingCoupling(object):
             h1m = Function(self.Vms_control[i])
             A_x_b(transfer_matrices_linear[1], h1_func.vector(), h1m.vector())
             hm_avg = 0.5*(h0m+h1m)
+            self.h0m_list += [h0m]
+            self.h1m_list += [h1m]
             self.hm_avg_list += [hm_avg,]
 
         if self.h_th_is_function:
