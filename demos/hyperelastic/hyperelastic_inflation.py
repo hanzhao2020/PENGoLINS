@@ -127,6 +127,13 @@ problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 
+mu = E/(2*(1+nu))
+# Neo-Hookean material
+def psi_el(E_, mu=mu):
+    C = 2.0*E_ + Identity(3)
+    I1 = tr(C)
+    return 0.5*mu*(I1 - 3.0)
+
 source_terms = []
 residuals = []
 for i in range(num_srfs):
@@ -140,7 +147,7 @@ for i in range(num_srfs):
     residuals += [hyperelastic_residual(problem.splines[i], 
                                         problem.spline_funcs[i], 
                                         problem.spline_test_funcs[i], 
-                                        E, nu, h_th, source_terms[i]),]
+                                        h_th, psi_el, source_terms[i]),]
 problem.set_residuals(residuals)
 
 for time_iter in range(n_steps):

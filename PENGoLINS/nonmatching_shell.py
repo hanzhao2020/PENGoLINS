@@ -442,7 +442,41 @@ def SVK_residual(spline, u_hom, z_hom, E, nu, h, dWext):
     res = dWint - dWext
     return res
 
-def hyperelastic_residual(spline, u_hom, z_hom, E, nu, h, dWext, quad_pts=4):
+# def hyperelastic_residual(spline, u_hom, z_hom, E, nu, h, dWext, quad_pts=4):
+#     """
+#     PDE residual for Kirchhoff--Love shell using incompressible 
+#     hyperelastic model. Assume Neo-Hookean material.
+
+#     Parameters
+#     ----------
+#     spline : ExtractedSpline
+#     u_hom : dolfin Function
+#     z_hom : dolfin Argument
+#     E : dolfin Constant
+#     h : dolfin Constant
+#     dWext : dolfin Form
+
+#     Returns
+#     -------
+#     res: dolfin Form
+#     """
+#     mu = E/(2*(1+nu))
+#     X = spline.F
+#     x = X + spline.rationalize(u_hom)
+#     def psi_el(E_):
+#         # Neo-Hookean potential
+#         C = 2.0*E_ + Identity(3)
+#         I1 = tr(C)
+#         return 0.5*mu*(I1 - 3.0)
+#     dxi2 = throughThicknessMeasure(quad_pts, h)
+#     psi = incompressiblePotentialKL(spline, X, x, psi_el)
+#     Wint = psi*dxi2*spline.dx
+#     dWint = derivative(Wint, u_hom, z_hom)
+#     res = dWint - dWext
+#     return res
+
+
+def hyperelastic_residual(spline, u_hom, z_hom, h, psi_el, dWext, quad_pts=4):
     """
     PDE residual for Kirchhoff--Love shell using incompressible 
     hyperelastic model.
@@ -452,28 +486,24 @@ def hyperelastic_residual(spline, u_hom, z_hom, E, nu, h, dWext, quad_pts=4):
     spline : ExtractedSpline
     u_hom : dolfin Function
     z_hom : dolfin Argument
-    E : dolfin Constant
     h : dolfin Constant
+    psi_el : function, elastic strain-energy functional
     dWext : dolfin Form
+    quad_pts : int
 
     Returns
     -------
     res: dolfin Form
     """
-    mu = E/(2*(1+nu))
     X = spline.F
     x = X + spline.rationalize(u_hom)
-    def psi_el(E_):
-        # Neo-Hookean potential
-        C = 2.0*E_ + Identity(3)
-        I1 = tr(C)
-        return 0.5*mu*(I1 - 3.0)
     dxi2 = throughThicknessMeasure(quad_pts, h)
     psi = incompressiblePotentialKL(spline, X, x, psi_el)
     Wint = psi*dxi2*spline.dx
     dWint = derivative(Wint, u_hom, z_hom)
     res = dWint - dWext
     return res
+
 
 if __name__ == "__main__":
     pass
