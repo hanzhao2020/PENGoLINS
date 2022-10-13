@@ -33,7 +33,15 @@ def create_spline(srf, num_field=3, BCs=[]):
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
-E = Constant(4.8e5)
+# Isotropic Lee-Sacks material paramter
+c0 = 67.6080e3
+c1 = 13.2848e3
+c2 = 38.1878e3
+# Imcompressible
+nu = 0.5
+E = c0*2*(1+nu)
+h_th = Constant(0.375)
+
 L = 12.
 load_mag = 1.
 
@@ -51,7 +59,7 @@ pts3 = [[L/2, L/2, 0.], [L, L/2, 0.],
 pts_list = [pts0, pts1, pts2, pts3]
 num_srfs = len(pts_list)
 
-num_el = 2
+num_el = 4
 penalty_coefficient = 1.0e3
 print("Penalty coefficient:", penalty_coefficient)
 
@@ -97,7 +105,7 @@ problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 
 # Isotropic Lee-Sacks material
-def psi_el(E_, c0=67.6080e3, c1=13.2848e3, c2=38.1878e3):
+def psi_el(E_, c0=c0, c1=c1, c2=c2):
     C = 2.0*E_ + Identity(3)
     I1 = tr(C)
     return 0.5*c0*(I1-3.0) \
