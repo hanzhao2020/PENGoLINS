@@ -434,7 +434,7 @@ class NonMatchingCoupling(object):
         self.point_sources = point_sources
         self.point_source_inds = point_source_inds
 
-    def assemble_nonmatching(self):
+    def assemble_nonmatching(self, assemble_nonmatching_LHS=True):
         """
         Assemble the non-matching system.
         """
@@ -464,12 +464,9 @@ class NonMatchingCoupling(object):
         # Step 2: assemble non-matching contributions
         # Create empty lists for non-matching contributions
         Rm_FE = [None for i1 in range(self.num_splines)]
-        dRm_dum_FE = [[None for i1 in range(self.num_splines)] 
-                      for i2 in range(self.num_splines)]
-
-        # add_nonmatching = True
-        # if add_nonmatching:
-        #     print("Adding non-matching contributions ...")
+        if assemble_nonmatching_LHS:
+            self.dRm_dum_FE = [[None for i1 in range(self.num_splines)] 
+                                for i2 in range(self.num_splines)]
 
         # Compute non-matching contributions ``Rm_FE`` and 
         # ``dRm_dum_FE``.
@@ -500,54 +497,64 @@ class NonMatchingCoupling(object):
             Rm = transfer_penalty_differentiation(Rm_list, 
                 self.transfer_matrices_list[i][0], 
                 self.transfer_matrices_list[i][1])
-            dRm_dum_list = penalty_linearization(Rm_list, 
-                self.mortar_vars[i][0], self.mortar_vars[i][1])            
-            dRm_dum = transfer_penalty_linearization(dRm_dum_list, 
-                self.transfer_matrices_list[i][0], 
-                self.transfer_matrices_list[i][1])
+            if assemble_nonmatching_LHS:
+                dRm_dum_list = penalty_linearization(Rm_list, 
+                    self.mortar_vars[i][0], self.mortar_vars[i][1])            
+                dRm_dum = transfer_penalty_linearization(dRm_dum_list, 
+                    self.transfer_matrices_list[i][0], 
+                    self.transfer_matrices_list[i][1])
 
-            for j in range(len(dRm_dum)):
+            for j in range(len(Rm)):
                 if Rm_FE[self.mapping_list[i][j]] is not None:
                     Rm_FE[self.mapping_list[i][j]] += Rm[j]
                 else:
                     Rm_FE[self.mapping_list[i][j]] = Rm[j]
-
-                for k in range(len(dRm_dum[j])):
-                    if dRm_dum_FE[self.mapping_list[i][j]]\
-                       [self.mapping_list[i][k]] is not None:
-                        dRm_dum_FE[self.mapping_list[i][j]]\
-                            [self.mapping_list[i][k]] += dRm_dum[j][k]
-                    else:
-                        dRm_dum_FE[self.mapping_list[i][j]]\
-                            [self.mapping_list[i][k]] = dRm_dum[j][k]
+                if assemble_nonmatching_LHS:
+                    for k in range(len(dRm_dum[j])):
+                        if self.dRm_dum_FE[self.mapping_list[i][j]]\
+                           [self.mapping_list[i][k]] is not None:
+                            self.dRm_dum_FE[self.mapping_list[i][j]]\
+                                [self.mapping_list[i][k]] += dRm_dum[j][k]
+                        else:
+                            self.dRm_dum_FE[self.mapping_list[i][j]]\
+                                [self.mapping_list[i][k]] = dRm_dum[j][k]
 
         # Step 3: add spline residuals and non-matching 
         # contribution together
+        Rt_FE = [None for i1 in range(self.num_splines)]
+        dRt_dut_FE = [[None for i1 in range(self.num_splines)] 
+                           for i2 in range(self.num_splines)]
         for i in range(self.num_splines):
-            if Rm_FE[i] is not None:
-                Rm_FE[i] += R_FE[i]
-                dRm_dum_FE[i][i] += dR_du_FE[i]
-            else:
-                Rm_FE[i] = R_FE[i]
-                dRm_dum_FE[i][i] = dR_du_FE[i]
+            for j in range(self.num_splines):
+                if i == j:
+                    if Rm_FE[i] is not None:
+                        Rt_FE[i] = R_FE[i] + Rm_FE[i]
+                        dRt_dut_FE[i][i] = dR_du_FE[i] + self.dRm_dum_FE[i][i]
+                    else:
+                        Rt_FE[i] = R_FE[i]
+                        dRt_dut_FE[i][i] = dR_du_FE[i]
+                else:
+                    dRt_dut_FE[i][j] = self.dRm_dum_FE[i][j]
 
         # Step 4: add contact contributions if contact is given
         if self.contact is not None:
             Kcs, Fcs = self.contact.assembleContact(self.spline_funcs, 
                                                     output_PETSc=True)
             for i in range(self.num_splines):
-                if Rm_FE[i] is None:
-                    Rm_FE[i] = Fcs[i]
-                elif Rm_FE[i] is not None and Fcs[i] is not None:
-                    Rm_FE[i] += Fcs[i]
                 for j in range(self.num_splines):
-                    if dRm_dum_FE[i][j] is None:
-                        dRm_dum_FE[i][j] = Kcs[i][j]
-                    elif dRm_dum_FE[i][j] is not None \
-                        and Kcs[i][j] is not None:
-                        dRm_dum_FE[i][j] += Kcs[i][j]
+                    if i == j:
+                        if Fcs[i] is not None:
+                            Rt_FE[i] += Fcs[i]
+                            dRt_dut_FE[i][i] += Kcs[i][i]
+                    else:
+                        if dRt_dut_FE is not None:
+                            if Fcs[i][j] is not None:
+                                dRt_dut_FE[i][j] += Fcs[i][j]
+                        else:
+                            if Fcs[i][j] is not None:
+                                dRt_dut_FE[i][j] = Fcs[i][j]
 
-        return dRm_dum_FE, Rm_FE
+        return dRt_dut_FE, Rt_FE
 
     def extract_nonmatching_system(self, Rt_FE, dRt_dut_FE):
         """
@@ -683,7 +690,7 @@ class NonMatchingCoupling(object):
                                 fieldsplit_pc_type=PETSc.PC.Type.LU, 
                                 ksp_rtol=1e-15, ksp_max_it=100000,
                                 ksp_view=False, ksp_monitor_residual=False, 
-                                iga_dofs=False):
+                                iga_dofs=False, modified_Newton=True):
         """
         Solve the nonlinear non-matching system using Newton's method.
 
@@ -742,8 +749,15 @@ class NonMatchingCoupling(object):
             u_iga = create_nest_PETScVec(u_iga_list, comm=self.comm)
                 
         for newton_iter in range(max_it+1):
-
-            dRt_dut_FE, Rt_FE = self.assemble_nonmatching()
+            if modified_Newton:
+                if newton_iter < 2:
+                    assemble_nonmatching_LHS = True
+                else:
+                    assemble_nonmatching_LHS = False
+            else:
+                assemble_nonmatching_LHS = True
+            dRt_dut_FE, Rt_FE = self.assemble_nonmatching(
+                                assemble_nonmatching_LHS)
             self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
 
             if solver == "direct":
