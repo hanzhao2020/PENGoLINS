@@ -690,7 +690,8 @@ class NonMatchingCoupling(object):
                                 fieldsplit_pc_type=PETSc.PC.Type.LU, 
                                 ksp_rtol=1e-15, ksp_max_it=100000,
                                 ksp_view=False, ksp_monitor_residual=False, 
-                                iga_dofs=False, modified_Newton=True):
+                                iga_dofs=False, modified_Newton=False,
+                                LHS_nm_assemble_times=1):
         """
         Solve the nonlinear non-matching system using Newton's method.
 
@@ -722,6 +723,13 @@ class NonMatchingCoupling(object):
             Maximum iteration for PETSc KSP solver
         ksp_view : bool, default is False
         ksp_monitor_residual : bool, default is False
+        iga_dofs : bool, default is False
+            If True, return nonlinear solution in IGA DoFs
+        modified_Newton : bool, default is False
+            If True, assemble the LHS non-matching contribution 
+            ``LHS_nm_assemble_times`` times for each nonlinear
+            solve.
+        LHS_nm_assemble_times : int, default is 1
 
         Returns
         -------
@@ -750,7 +758,7 @@ class NonMatchingCoupling(object):
                 
         for newton_iter in range(max_it+1):
             if modified_Newton:
-                if newton_iter < 2:
+                if newton_iter < LHS_nm_assemble_times:
                     assemble_nonmatching_LHS = True
                 else:
                     assemble_nonmatching_LHS = False
