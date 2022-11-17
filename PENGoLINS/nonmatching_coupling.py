@@ -547,12 +547,12 @@ class NonMatchingCoupling(object):
                             Rt_FE[i] += Fcs[i]
                             dRt_dut_FE[i][i] += Kcs[i][i]
                     else:
-                        if dRt_dut_FE is not None:
-                            if Fcs[i][j] is not None:
-                                dRt_dut_FE[i][j] += Fcs[i][j]
+                        if dRt_dut_FE[i][j] is not None:
+                            if Kcs[i][j] is not None:
+                                dRt_dut_FE[i][j] += Kcs[i][j]
                         else:
-                            if Fcs[i][j] is not None:
-                                dRt_dut_FE[i][j] = Fcs[i][j]
+                            if Kcs[i][j] is not None:
+                                dRt_dut_FE[i][j] = Kcs[i][j]
 
         return dRt_dut_FE, Rt_FE
 
