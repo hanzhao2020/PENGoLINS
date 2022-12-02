@@ -68,6 +68,8 @@ class NonMatchingCoupling(object):
         self.contact = contact
         self.residuals = None
         self.residuals_deriv = None
+        self.point_sources = None
+        self.point_source_inds = None
 
     def global_zero_dofs(self):
         """
@@ -384,8 +386,7 @@ class NonMatchingCoupling(object):
             self.Rm_list[i] = Rm_temp_to_assemble
             self.dRm_dum_list[i] = dRm_dum_temp_to_assemble
 
-    def set_residuals(self, residuals, residuals_deriv=None,  
-                      point_sources=None, point_source_inds=None):
+    def set_residuals(self, residuals, residuals_deriv=None):
         """
         Specify the shell residuals.
 
@@ -393,8 +394,6 @@ class NonMatchingCoupling(object):
         ----------
         residuals : list of ufl forms
         residuals_deriv : list of ufl forms or None, default is None
-        point_sources : list of dolfin PointSources, default is None
-        point_source_inds : list of inds, default is None
         """
         if residuals_deriv is None:
             residuals_deriv = [derivative(residuals[i], self.spline_funcs[i]) 
@@ -407,14 +406,16 @@ class NonMatchingCoupling(object):
         self.residuals_deriv = [Form(res_deriv) 
                                 for res_deriv in residuals_deriv]
 
-        if point_sources is None and point_source_inds is not None:
-            if MPI.rank(self.comm) == 0:
-                raise RuntimeError("``point_sources`` has to be given ", 
-                                    "if ``point_source_inds`` is given.")
-        elif point_sources is not None and point_source_inds is None:
-            if MPI.rank(self.comm) == 0:
-                raise RuntimeError("``point_source_inds`` has to be given ", 
-                                    "if ``point_sources`` is given.")
+    def set_point_sources(self, point_sources, point_source_inds):
+        """
+        Specify point load for shell patches.
+
+        Parameters
+        ----------
+        point_sources : list of dolfin PointSources
+        point_source_inds : list of ints, spline indices where
+            point sources are applied
+        """
         self.point_sources = point_sources
         self.point_source_inds = point_source_inds
 
