@@ -15,8 +15,8 @@ class NonMatchingCoupling(object):
     multiple spline patches.
     """
     def __init__(self, splines, E, h_th, nu, num_field=3, 
-                 contact=None, int_measure_metadata=None, 
-                 comm=None):
+                 int_V_family='CG', int_V_degree=1,
+                 int_dx_metadata=None, contact=None, comm=None):
         """
         Pass the list of splines and number of element for 
         each spline and other parameters to initialize the 
@@ -30,18 +30,24 @@ class NonMatchingCoupling(object):
         nu : ufl Constant or list, Poisson's ratio
         num_field : int, optional
             Number of field of the unknowns. Default is 3.
-        contact : ShNAPr.contact.ShellContactContext, optional
-        int_measure_metadata : dict, optional
+        int_V_family : str, optional, element family for 
+            mortar meshes. Default is 'CG'.
+        int_V_degree : int, optional, default is 1.
+        int_dx_metadata : dict, optional
             Metadata information for integration measure of 
             intersection curves. Default is vertex quadrature
             with degree 0.
+        contact : ShNAPr.contact.ShellContactContext, optional
         comm : mpi4py.MPI.Intracomm, optional, default is None.
         """
         self.splines = splines
         self.num_splines = len(splines)
         self.num_field = num_field
-        self.geom_dim = splines[0].mesh.geometric_dimension()
+        self.para_dim = splines[0].mesh.geometric_dimension()
         self._init_properties(E, h_th, nu)
+
+        self.int_V_family = int_V_family
+        self.int_V_degree = int_V_degree
 
         self.spline_funcs = [Function(spline.V) for spline in self.splines]
         self.spline_test_funcs = [TestFunction(spline.V) 
@@ -52,16 +58,16 @@ class NonMatchingCoupling(object):
         else:
             self.comm = comm
         
-        if int_measure_metadata is None:
-            self.int_measure_metadata = {'quadrature_degree': 0, 
+        if int_dx_metadata is None:
+            self.int_dx_metadata = {'quadrature_degree': 0, 
                                          'quadrature_scheme': 'vertex'}
-            # self.int_measure_metadata = {"quadrature_degree":2}
+            # self.int_dx_metadata = {"quadrature_degree":2}
         else:
-            self.int_measure_metadata = int_measure_metadata
+            self.int_dx_metadata = int_dx_metadata
 
         self.contact = contact
         self.residuals = None
-        self.deriv_residuals = None
+        self.residuals_deriv = None
 
     def global_zero_dofs(self):
         """
@@ -82,10 +88,9 @@ class NonMatchingCoupling(object):
         zero_dofs.createGeneral(zero_dofs_array)
         return zero_dofs
 
-
     def _init_properties(self, E=None, h_th=None, nu=None):
         """
-        Initialize geometrica and material properties. For internal use.
+        Initialize geometric and material properties. For internal use.
 
         Parameters
         ----------
@@ -114,11 +119,6 @@ class NonMatchingCoupling(object):
             else:
                 self.h_th = [h_th for i in range(self.num_splines)]
 
-        if isinstance(self.h_th[0], DOLFIN_FUNCTION):
-            self.h_th_is_function = True
-        else:
-            self.h_th_is_function = False
-
         if nu is not None:
             if isinstance(nu, list):
                 self.nu = nu  # Poisson's ratio
@@ -128,25 +128,6 @@ class NonMatchingCoupling(object):
                             " doesn't match with the number of splines.")
             else:
                 self.nu = [nu for i in range(self.num_splines)]
-
-    def _create_transfer_matrices_thickness(self, mortar_parametric_coords):
-        """
-        Create transfer matrices for the thickness of the spline patches
-        and mortar meshes, if the thickness are dolfin functions. For 
-        internal use.
-        """
-        self.transfer_matrices_thickness_list = []
-        for i in range(self.num_interfaces):
-            transfer_matrices_thickness = [[], []]
-            for j in range(len(self.mapping_list[i])):
-                move_mortar_mesh(self.mortar_meshes[i], 
-                                 mortar_parametric_coords[i][j])
-                transfer_matrices_thickness[j] = create_transfer_matrix(
-                    self.h_th[self.mapping_list[i][j]].function_space(), 
-                    self.Vms_control[i])
-
-            self.transfer_matrices_thickness_list += \
-                [transfer_matrices_thickness,]
 
     def create_mortar_meshes(self, mortar_nels, mortar_coords=None):
         """
@@ -161,86 +142,58 @@ class NonMatchingCoupling(object):
             Default is None, corresponds to coordinate 
             [[0,0],[0,1]].
         """
-        self.num_interfaces = len(mortar_nels)
+        self.num_intersections = len(mortar_nels)
         if mortar_coords is None:
             mortar_coords = [np.array([[0.,0.],[0.,1.]]),]\
-                            *self.num_interfaces
+                            *self.num_intersections
         self.mortar_meshes = [generate_mortar_mesh(mortar_coords[i], 
                               mortar_nels[i], comm=self.comm) 
-                              for i in range(self.num_interfaces)]
+                              for i in range(self.num_intersections)]
 
-    def create_mortar_funcs(self, family, degree):
+    def _create_mortar_func_spaces(self):
         """
-        Create function spaces, function spaces of control points 
-        and functions for all mortar meshes.
-
-        Parameters
-        ----------
-        family : str, specification of the element family.
-        degree : int
+        Vms are vector function spaces with dimension of ``num_field``
+        Vms_control are scalar function spaces
+        dVms are vector function space with dimension of  
+        ``num_field``*``para_dim``.
+        dVms_control are vector function spaces with dimension of 
+        ``para_dim``
         """
-        # Function space for dolfin functions of mortar meshes
-        if self.num_field == 1:
-            self.Vms = [FunctionSpace(mortar_mesh, family, degree) for 
-                        mortar_mesh in self.mortar_meshes]
-        else:
-            self.Vms = [VectorFunctionSpace(mortar_mesh, family, degree, 
-                        dim=self.num_field) for mortar_mesh in \
-                        self.mortar_meshes]
-
-        # Function space for control points information of mortar meshes
-        self.Vms_control = [FunctionSpace(mortar_mesh, family, degree) for 
-                            mortar_mesh in self.mortar_meshes]
-        # Mortar meshes' functions
-        self.mortar_funcs = [[Function(Vm), Function(Vm)] for Vm in self.Vms]
-        # Functions for thickness on moratr mesh
-        if self.h_th_is_function:
-            self.mortar_h_th = [[Function(Vmc), Function(Vmc)] for Vmc in 
-                                 self.Vms_control]
-
-    def create_mortar_funcs_derivative(self, family, degree):
-        """
-        Create the derivative of function spaces, derivative of 
-        function spaces of control points and derivative of 
-        function of mortar meshes.
-
-        Parameters
-        ----------
-        family : str, specification of the element family.
-        degree : int    
-        """
+        self.Vms = []
+        self.Vms_control = []
         self.dVms = []
         self.dVms_control = []
-        self.mortar_funcs_dxi = [[] for i in range(self.geom_dim)]
 
-        for i in range(self.num_interfaces):
-            if self.num_field == 1:
-                self.dVms += [FunctionSpace(self.mortar_meshes[i], 
-                                            family, degree),]
-            else:
-                self.dVms += [VectorFunctionSpace(self.mortar_meshes[i], 
-                                                 family, degree, 
-                                                 dim=self.num_field),]
+        for mortar_mesh in self.mortar_meshes:
+            self.Vms += [VectorFunctionSpace(mortar_mesh, self.int_V_family, 
+                         self.int_V_degree, dim=self.num_field)]
+            self.Vms_control += [FunctionSpace(mortar_mesh, self.int_V_family, 
+                         self.int_V_degree)]
+            self.dVms += [VectorFunctionSpace(mortar_mesh, self.int_V_family, 
+                         self.int_V_degree, dim=self.num_field*self.para_dim)]
+            self.dVms_control += [VectorFunctionSpace(mortar_mesh, self.int_V_family, 
+                         self.int_V_degree, dim=self.para_dim)]
 
-            self.dVms_control += [FunctionSpace(self.mortar_meshes[i], 
-                                                family, degree),]
-
-            for j in range(self.geom_dim):
-                self.mortar_funcs_dxi[j] += [[Function(self.dVms[i]), 
-                                              Function(self.dVms[i])],]
-
-    def _create_mortar_vars(self):
+    def _create_mortar_funcs(self):
         """
-        Rearrange the order of functions and their derivatives 
-        of mortar meshes. For internal use.
+        mortar_funcs are mortar meshes' displacements and displacement 
+        derivatives on two sides.
+        mortar_cpfuncs are mortar meshes' control point functions
+        (four components) on two sides.
         """
-        self.mortar_vars = []
-        for i in range(self.num_interfaces):
-            self.mortar_vars += [[[],[]],]
-            for j in range(2):
-                self.mortar_vars[i][j] += [self.mortar_funcs[i][j],]
-                for k in range(self.geom_dim):
-                    self.mortar_vars[i][j] += [self.mortar_funcs_dxi[k][i][j]]
+        self.mortar_funcs = [[] for i in range(self.num_intersections)]
+        self.mortar_cpfuncs = [[] for i in range(self.num_intersections)]
+        for mortar_ind in range(self.num_intersections):
+            for side in range(2):
+                self.mortar_funcs[mortar_ind] += \
+                    [[Function(self.Vms[mortar_ind]),
+                      Function(self.dVms[mortar_ind])]]
+                self.mortar_cpfuncs[mortar_ind] += [[[],[]]]
+                for field in range(self.num_field+1):
+                    self.mortar_cpfuncs[mortar_ind][side][0] += \
+                        [Function(self.Vms_control[mortar_ind])]
+                    self.mortar_cpfuncs[mortar_ind][side][1] += \
+                        [Function(self.dVms_control[mortar_ind])]
 
     def mortar_meshes_setup(self, mapping_list, mortar_parametric_coords, 
                             penalty_coefficient=1000, 
@@ -255,13 +208,13 @@ class NonMatchingCoupling(object):
         penalty_coefficient : float, optional, default is 1000
         penalty_method : str, {'minimum', 'maximum', 'average'}
         """
-        assert self.num_interfaces == len(mapping_list)
-        self._create_mortar_vars()
+        assert self.num_intersections == len(mapping_list)
+        self._create_mortar_func_spaces()
+        self._create_mortar_funcs()
+
         self.mortar_parametric_coords = mortar_parametric_coords
         self.mapping_list = mapping_list
         self.penalty_coefficient = penalty_coefficient
-        self.t1_A_list = []
-        self.t2_A_list = []
         self.transfer_matrices_list = []
         self.transfer_matrices_control_list = []
         self.transfer_matrices_linear_list = []
@@ -269,38 +222,33 @@ class NonMatchingCoupling(object):
         self.h1m_list = []
         self.hm_avg_list = []
 
-        for i in range(self.num_interfaces):
-            transfer_matrices = [[], []]
-            transfer_matrices_control = [[], []]
-            transfer_matrices_linear = [[], []]
-            if self.h_th_is_function:
-                transfer_matrices_thickness = [[], []]
+        # Create transfer matrices for displacements and cpfuncs
+        for i in range(self.num_intersections):
+            transfer_matrices = [None, None]
+            transfer_matrices_control = [None, None]
+            transfer_matrices_linear = [None, None]
             for j in range(len(self.mapping_list[i])):
                 move_mortar_mesh(self.mortar_meshes[i], 
                                  mortar_parametric_coords[i][j])
-                if j == 0:
-                    t11, t21 = tangent_components(self.mortar_meshes[i])
-                    self.t1_A_list += [t11]
-                    self.t2_A_list += [t21]
-
                 # Create transfer matrices
                 transfer_matrices[j] = create_transfer_matrix_list(
-                    self.splines[self.mapping_list[i][j]].V, 
-                    self.Vms[i], self.dVms[i])
+                    self.splines[self.mapping_list[i][j]].V, self.Vms[i], 1)
                 transfer_matrices_control[j] = create_transfer_matrix_list(
                     self.splines[self.mapping_list[i][j]].V_control, 
-                    self.Vms_control[i], self.dVms_control[i])
+                    self.Vms_control[i], 1)
                 transfer_matrices_linear[j] = create_transfer_matrix(
                     self.splines[self.mapping_list[i][j]].V_linear,
                     self.Vms_control[i])
+            move_mortar_mesh(self.mortar_meshes[i], 
+                             mortar_parametric_coords[i][0])
 
-            # Store transfers in lists for future use
+            # Store transfer matrices in lists for future use
             self.transfer_matrices_list += [transfer_matrices,]
             self.transfer_matrices_control_list += [transfer_matrices_control]
             self.transfer_matrices_linear_list += [transfer_matrices_linear,]
 
-            s_ind0, s_ind1 = self.mapping_list[i]
             # Compute element length
+            s_ind0, s_ind1 = self.mapping_list[i]
             h0 = spline_mesh_size(self.splines[s_ind0])
             h0_func = self.splines[s_ind0]\
                 .projectScalarOntoLinears(h0, lumpMass=True)
@@ -316,10 +264,8 @@ class NonMatchingCoupling(object):
             self.h1m_list += [h1m]
             self.hm_avg_list += [hm_avg,]
 
-        if self.h_th_is_function:
-            self._create_transfer_matrices_thickness(
-                self.mortar_parametric_coords)
         self.penalty_parameters(method=penalty_method)
+        self.mortar_mesh_forms()
 
     def penalty_parameters(self, E=None, h_th=None, nu=None, 
                            method='minimum'):
@@ -338,7 +284,7 @@ class NonMatchingCoupling(object):
         self.alpha_d_list = []
         self.alpha_r_list = []
 
-        for i in range(self.num_interfaces):
+        for i in range(self.num_intersections):
             s_ind0, s_ind1 = self.mapping_list[i]
 
             # # Original implementation
@@ -361,18 +307,8 @@ class NonMatchingCoupling(object):
             # self.alpha_d_list += [alpha_d,]
             # self.alpha_r_list += [alpha_r,]
 
-            if self.h_th_is_function:
-                A_x_b(self.transfer_matrices_thickness_list[i][0],
-                      self.h_th[s_ind0].vector(), 
-                      self.mortar_h_th[i][0].vector())
-                A_x_b(self.transfer_matrices_thickness_list[i][1],
-                      self.h_th[s_ind1].vector(), 
-                      self.mortar_h_th[i][1].vector())
-                h_th0 = self.mortar_h_th[i][0]
-                h_th1 = self.mortar_h_th[i][1]
-            else:
-                h_th0 = self.h_th[s_ind0]
-                h_th1 = self.h_th[s_ind1]
+            h_th0 = self.h_th[s_ind0]
+            h_th1 = self.h_th[s_ind1]
 
             max_Aij0 = self.E[s_ind0]*h_th0\
                        /(1-self.nu[s_ind0]**2)
@@ -404,7 +340,51 @@ class NonMatchingCoupling(object):
             self.alpha_d_list += [alpha_d,]
             self.alpha_r_list += [alpha_r,]
 
-    def set_residuals(self, residuals, deriv_residuals=None,  
+    def mortar_mesh_forms(self):
+        """
+        Compute RHS non-matching residuals and LHS non-matching derivatives
+        in dolfin Forms
+        """
+        self.Rm_list = [None for i in range(self.num_intersections)]
+        self.dRm_dum_list = [None for i in range(self.num_intersections)]
+        dx_m = dx(metadata=self.int_dx_metadata)
+        for i in range(self.num_intersections):
+            s_ind0, s_ind1 = self.mapping_list[i]
+            self.PE = penalty_energy(self.splines[s_ind0], 
+                self.splines[s_ind1], self.spline_funcs[s_ind0], 
+                self.spline_funcs[s_ind1], self.mortar_meshes[i], 
+                self.mortar_funcs[i], self.mortar_cpfuncs[i], 
+                self.transfer_matrices_list[i],
+                self.transfer_matrices_control_list[i],
+                self.alpha_d_list[i], self.alpha_r_list[i], 
+                dx_m=dx_m)
+
+            # An initial check for penalty energy, if ``PE``is nan,
+            # raise RuntimeError.
+            PE_value = assemble(self.PE)
+            if PE_value is nan:
+                if MPI.rank(self.comm) == 0:
+                    raise RuntimeError("Penalty energy value is nan between "
+                          "splines {:2d} and {:2d}.".format(
+                          self.mapping_list[i][0], self.mapping_list[i][1]))
+
+            Rm_temp = penalty_residual(self.PE, self.mortar_funcs[i])
+            dRm_dum_temp = penalty_residual_deriv(Rm_temp, 
+                                                  self.mortar_funcs[i])
+
+            Rm_temp_to_assemble = [[Form(Rm_ij) for Rm_ij in Rm_i] 
+                                    for Rm_i in Rm_temp]
+            dRm_dum_temp_to_assemble = [[[[Form(dRm_dum_ijkl) 
+                                           if dRm_dum_ijkl is not None 
+                                           else None 
+                                           for dRm_dum_ijkl in dRm_dum_ijk]
+                                           for dRm_dum_ijk in dRm_dum_ij]
+                                           for dRm_dum_ij in dRm_dum_i]
+                                           for dRm_dum_i in dRm_dum_temp]
+            self.Rm_list[i] = Rm_temp_to_assemble
+            self.dRm_dum_list[i] = dRm_dum_temp_to_assemble
+
+    def set_residuals(self, residuals, residuals_deriv=None,  
                       point_sources=None, point_source_inds=None):
         """
         Specify the shell residuals.
@@ -412,16 +392,20 @@ class NonMatchingCoupling(object):
         Parameters
         ----------
         residuals : list of ufl forms
-        deriv_residuals : list of ufl forms or None, default is None
+        residuals_deriv : list of ufl forms or None, default is None
         point_sources : list of dolfin PointSources, default is None
         point_source_inds : list of inds, default is None
         """
-        if deriv_residuals is None:
-            deriv_residuals = [derivative(residuals[i], self.spline_funcs[i]) 
+        if residuals_deriv is None:
+            residuals_deriv = [derivative(residuals[i], self.spline_funcs[i]) 
                                           for i in range(self.num_splines)]
 
-        self.residuals = residuals
-        self.deriv_residuals = deriv_residuals
+        # self.residuals = residuals
+        # self.residuals_deriv = residuals_deriv
+
+        self.residuals = [Form(res) for res in residuals]
+        self.residuals_deriv = [Form(res_deriv) 
+                                for res_deriv in residuals_deriv]
 
         if point_sources is None and point_source_inds is not None:
             if MPI.rank(self.comm) == 0:
@@ -438,12 +422,12 @@ class NonMatchingCoupling(object):
         """
         Assemble the non-matching system.
         """
-        # Step 1: assemble residuals of ExtractedSplines 
+        ## Step 1: assemble residuals of ExtractedSplines 
         # and derivatives.
         if self.residuals is None:
             if MPI.rank(self.comm) == 0:
                 raise RuntimeError("Shell residuals are not specified.") 
-        if self.deriv_residuals is None:
+        if self.residuals_deriv is None:
             if MPI.rank(self.comm) == 0:
                 raise RuntimeError("Derivatives of shell residuals are "
                                    "not specified.")
@@ -453,7 +437,7 @@ class NonMatchingCoupling(object):
         dR_du_FE = []
         for i in range(self.num_splines):
             R_assemble = assemble(self.residuals[i])
-            dR_du_assemble = assemble(self.deriv_residuals[i])
+            dR_du_assemble = assemble(self.residuals_deriv[i])
             if self.point_sources is not None:
                 for j, ps_ind in enumerate(self.point_source_inds):
                     if ps_ind == i:
@@ -461,48 +445,21 @@ class NonMatchingCoupling(object):
             R_FE += [v2p(R_assemble),]
             dR_du_FE += [m2p(dR_du_assemble),]
 
-        # Step 2: assemble non-matching contributions
+        ## Step 2: assemble non-matching contributions
         # Create empty lists for non-matching contributions
         Rm_FE = [None for i1 in range(self.num_splines)]
         if assemble_nonmatching_LHS:
-            self.dRm_dum_FE = [[None for i1 in range(self.num_splines)] 
+            dRm_dum_FE = [[None for i1 in range(self.num_splines)] 
                                 for i2 in range(self.num_splines)]
 
         # Compute non-matching contributions ``Rm_FE`` and 
         # ``dRm_dum_FE``.
-        for i in range(self.num_interfaces):
-            dx_m = dx(domain=self.mortar_meshes[i], 
-                      metadata=self.int_measure_metadata)
-            PE = penalty_energy(self.splines[self.mapping_list[i][0]], 
-                self.splines[self.mapping_list[i][1]], self.mortar_meshes[i],
-                self.Vms_control[i], self.dVms_control[i], 
-                self.transfer_matrices_control_list[i][0], 
-                self.transfer_matrices_control_list[i][1], 
-                self.alpha_d_list[i], self.alpha_r_list[i], 
-                self.mortar_vars[i][0], self.mortar_vars[i][1], 
-                self.t1_A_list[i], self.t2_A_list[i], 
-                dx_m=dx_m)
-
-            # An initial check for penalty energy, if ``PE``is nan,
-            # raise RuntimeError.
-            PE_value = assemble(PE)
-            if PE_value is nan:
-                if MPI.rank(self.comm) == 0:
-                    raise RuntimeError("Penalty energy value is nan between "
-                          "splines {:2d} and {:2d}.".format(
-                          self.mapping_list[i][0], self.mapping_list[i][1]))
-
-            Rm_list = penalty_differentiation(PE, 
-                self.mortar_vars[i][0], self.mortar_vars[i][1])
-            Rm = transfer_penalty_differentiation(Rm_list, 
-                self.transfer_matrices_list[i][0], 
-                self.transfer_matrices_list[i][1])
-            if assemble_nonmatching_LHS:
-                dRm_dum_list = penalty_linearization(Rm_list, 
-                    self.mortar_vars[i][0], self.mortar_vars[i][1])            
-                dRm_dum = transfer_penalty_linearization(dRm_dum_list, 
-                    self.transfer_matrices_list[i][0], 
-                    self.transfer_matrices_list[i][1])
+        for i in range(self.num_intersections):
+            Rm = transfer_penalty_residual(self.Rm_list[i], 
+                      self.transfer_matrices_list[i])
+            dRm_dum = transfer_penalty_residual_deriv(
+                           self.dRm_dum_list[i],  
+                           self.transfer_matrices_list[i])
 
             for j in range(len(Rm)):
                 if Rm_FE[self.mapping_list[i][j]] is not None:
@@ -510,16 +467,24 @@ class NonMatchingCoupling(object):
                 else:
                     Rm_FE[self.mapping_list[i][j]] = Rm[j]
                 if assemble_nonmatching_LHS:
-                    for k in range(len(dRm_dum[j])):
-                        if self.dRm_dum_FE[self.mapping_list[i][j]]\
+                    for k in range(j, len(dRm_dum[j])):
+                        if dRm_dum_FE[self.mapping_list[i][j]]\
                            [self.mapping_list[i][k]] is not None:
-                            self.dRm_dum_FE[self.mapping_list[i][j]]\
+                            dRm_dum_FE[self.mapping_list[i][j]]\
                                 [self.mapping_list[i][k]] += dRm_dum[j][k]
                         else:
-                            self.dRm_dum_FE[self.mapping_list[i][j]]\
+                            dRm_dum_FE[self.mapping_list[i][j]]\
                                 [self.mapping_list[i][k]] = dRm_dum[j][k]
 
-        # Step 3: add spline residuals and non-matching 
+        # Filling lower triangle blocks of non-matching derivatives
+        for i in range(self.num_splines-1):
+            for j in range(i+1, self.num_splines):
+                if dRm_dum_FE[i][j] is not None:
+                    dRm_dum_temp = dRm_dum_FE[i][j].copy()
+                    dRm_dum_temp.transpose()
+                    dRm_dum_FE[j][i] = dRm_dum_temp
+
+        ## Step 3: add spline residuals and non-matching 
         # contribution together
         Rt_FE = [None for i1 in range(self.num_splines)]
         dRt_dut_FE = [[None for i1 in range(self.num_splines)] 
@@ -529,14 +494,14 @@ class NonMatchingCoupling(object):
                 if i == j:
                     if Rm_FE[i] is not None:
                         Rt_FE[i] = R_FE[i] + Rm_FE[i]
-                        dRt_dut_FE[i][i] = dR_du_FE[i] + self.dRm_dum_FE[i][i]
+                        dRt_dut_FE[i][i] = dR_du_FE[i] + dRm_dum_FE[i][i]
                     else:
                         Rt_FE[i] = R_FE[i]
                         dRt_dut_FE[i][i] = dR_du_FE[i]
                 else:
-                    dRt_dut_FE[i][j] = self.dRm_dum_FE[i][j]
+                    dRt_dut_FE[i][j] = dRm_dum_FE[i][j]
 
-        # Step 4: add contact contributions if contact is given
+        ## Step 4: add contact contributions if contact is given
         if self.contact is not None:
             Kcs, Fcs = self.contact.assembleContact(self.spline_funcs, 
                                                     output_PETSc=True)
@@ -582,7 +547,6 @@ class NonMatchingCoupling(object):
                 if dRt_dut_FE[i][j] is not None:
                     dRm_dum_IGA_temp = AT_R_B(m2p(self.splines[i].M), 
                                   dRt_dut_FE[i][j], m2p(self.splines[j].M))
-
                     if i==j:
                         dRm_dum_IGA_temp = apply_bcs_mat(self.splines[i], 
                                            dRm_dum_IGA_temp, diag=1)
@@ -648,7 +612,7 @@ class NonMatchingCoupling(object):
         if solver == "direct":
             # In parallel, create a new aij matrix that have the 
             # same entries with original nest matrix to solve
-            # it using Dolfin direct solver.
+            # it using dolfin direct solver.
             if MPI.size(self.comm) == 1:
                 self.A.convert("seqaij")
             else:
@@ -741,8 +705,8 @@ class NonMatchingCoupling(object):
             for i in range(len(self.transfer_matrices_list)):
                 for j in range(len(self.transfer_matrices_list[i])):
                     for k in range(len(self.transfer_matrices_list[i][j])):
-                            self.mortar_vars[i][j][k].interpolate(
-                                                      Constant((0.,0.,0.)))
+                            self.mortar_funcs[i][j][k].interpolate(Constant(
+                                (0.,)*len(self.mortar_funcs[i][j][k])))
 
         # If iga_dofs is True, only starts from zero displacements,
         # this argument is designed for solving nonlinear 
@@ -833,9 +797,8 @@ class NonMatchingCoupling(object):
                 for j in range(len(self.transfer_matrices_list[i])):
                     for k in range(len(self.transfer_matrices_list[i][j])):
                         A_x_b(self.transfer_matrices_list[i][j][k], 
-                            self.spline_funcs[
-                                self.mapping_list[i][j]].vector(), 
-                            self.mortar_vars[i][j][k].vector())
+                              self.spline_funcs[self.mapping_list[i][j]].\
+                              vector(), self.mortar_funcs[i][j][k].vector())
 
         if iga_dofs:
             return self.spline_funcs, u_iga
@@ -890,9 +853,9 @@ class NonMatchingNonlinearProblem(NonlinearProblem):
             for j in range(len(self.problem.transfer_matrices_list[i])):
                 for k in range(len(self.problem.transfer_matrices_list[i][j])):
                     A_x_b(self.problem.transfer_matrices_list[i][j][k], 
-                        self.problem.spline_funcs[
-                            self.problem.mapping_list[i][j]].vector(), 
-                        self.problem.mortar_vars[i][j][k].vector())
+                          self.problem.spline_funcs[
+                          self.problem.mapping_list[i][j]].vector(), 
+                          self.problem.mortar_funcs[i][j][k].vector())
 
     def F(self, b, x):
         """

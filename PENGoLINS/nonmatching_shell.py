@@ -7,13 +7,14 @@ of non-matching interface.
 
 from PENGoLINS.nonmatching_utils import *
 from PENGoLINS.parametric_loc import *
+from ufl import Jacobian
 
 # Shell problem definitions
 from ShNAPr.kinematics import *
 from ShNAPr.SVK import *
 from ShNAPr.hyperelastic import *
 
-def create_transfer_matrix_list(V1, V2, dV2=None):
+def create_transfer_matrix_list(V1, V2, deriv=1):
     """
     Create a list that contains the transfer matrices of 
     unknowns and their derivatives.
@@ -22,28 +23,34 @@ def create_transfer_matrix_list(V1, V2, dV2=None):
     ----------
     V1 : dolfin FunctionSpace
     V2 : dolfin FunctionSpace
-    dV2 : dolfin FunctionSpace, optional
-        If dV2 is not None, create the transfer matrices 
-        of the derivatives.
+    deriv : int, creat transfer matrices from derivative
+        order 0 to ``deriv``. Default is 1.
 
     Returns
     -------
     matrix_list : list of dolfin PETScMatrices
     """
     matrix_list = []
-    # A12 = PETScDMCollection.create_transfer_matrix(V1,V2)
-    A12 = create_transfer_matrix(V1,V2)
-    matrix_list += [A12,]
-    if dV2 is not None: 
-        # Matrices to trasfer derivatives
-        dim = dV2.mesh().geometric_dimension()
-        for i in range(dim):
-            dA12 = create_transfer_matrix_partial_derivative(V1, dV2, i)
-            matrix_list += [dA12,]
-
+    for i in range(deriv+1):
+        matrix_list += [create_transfer_matrix(V1,V2,i)]
     return matrix_list
 
-def transfer_cpfuns(spline, V_control, dV_control, A_control):
+def transfer_mortar_u(u, um, A):
+    """
+    Transfer spline patch's displacements to mortar mesh.
+
+    Parameters
+    ----------
+    u : dolfin Function, spline patch's displacement
+    um : list of dolfin Function, mortar mesh's 
+         displacement and first derivatives
+    A : list of dolfin PETScMatrices for displacement
+        and its first derivative
+    """
+    for i in range(len(um)):
+        m2p(A[i]).mult(v2p(u.vector()), v2p(um[i].vector()))
+
+def transfer_mortar_cpfuns(spline, mortar_cpfuncs, A_control):
     """
     Transfer ``spline.cpFuns`` and its derivatives to the 
     function space of mortar mesh. 
@@ -51,33 +58,16 @@ def transfer_cpfuns(spline, V_control, dV_control, A_control):
     Parameters
     ----------
     spline : ExtractedSpline
-    V_control : dolfin FunctionSpace
-    dV_control : dolfin FunctionSpace
+    mortar_cpfuns : list of dolfin Functions for mortar mesh's
+        control point functions, four components.
     A_control : list of dolfin PETScMatrices
-
-    Returns
-    -------
-    cpfuncs : PETSc.Vec
-    cpfuncs_dxi1 : PETSc.Vec
-    cpfuncs_dxi2 : PETSc.Vec
     """
-    nsd = spline.nsd
-    cpfuncs = []
-    cpfuncs_dxi1 = []
-    cpfuncs_dxi2 = []
-    for i in range(nsd+1):
-        cpfuncs += [Function(V_control),]
-        cpfuncs_dxi1 += [Function(dV_control),]
-        cpfuncs_dxi2 += [Function(dV_control),]
-        m2p(A_control[0]).mult(spline.cpFuncs[i].vector().vec(), 
-                               cpfuncs[i].vector().vec())
-        m2p(A_control[1]).mult(spline.cpFuncs[i].vector().vec(), 
-                               cpfuncs_dxi1[i].vector().vec())
-        m2p(A_control[2]).mult(spline.cpFuncs[i].vector().vec(), 
-                               cpfuncs_dxi2[i].vector().vec())
-    return cpfuncs, cpfuncs_dxi1, cpfuncs_dxi2
+    for i in range(len(mortar_cpfuncs)):
+        for j in range(len(mortar_cpfuncs[i])):
+            m2p(A_control[i]).mult(v2p(spline.cpFuncs[j].vector()), 
+                                   v2p(mortar_cpfuncs[i][j].vector()))
 
-def create_geometrical_mapping(spline, cpfuncs, cpfuncs_dxi1, cpfuncs_dxi2):
+def create_geometrical_mapping(spline, cpfuncs):
     """
     Create the geometric mapping using ``cp_fucns`` and 
     its derivatives.
@@ -85,67 +75,81 @@ def create_geometrical_mapping(spline, cpfuncs, cpfuncs_dxi1, cpfuncs_dxi2):
     Parameters
     ----------
     spline : ExtractedSpline
-    cpfuncs : PETSc.Vec
-    cpfuncs_dxi1 : PETSc.Vec
-    cpfuncs_dxi2 : PETSc.Vec
+    cpfuncs : list of dolfin Functions
 
     Returns
     -------
     F : dolfin ListTensor
     dFdxi : dolfin ListTensor
     """
-    nsd = spline.nsd
-    # Reference configuration construction on mortar mesh.
-    components = []
-    components_dxi1 = []
-    components_dxi2 = []
-    for i in range(nsd):
-        # Components of reference configuration of 'mesh_m'.
-        components += [cpfuncs[i]/cpfuncs[nsd],]
-        # Components of derivatives of reference configuration
-        # of 'mesh_m', using quotient rule to compute the 
-        # derivatives: d(f/g) = (df*g-f*dg)/g**2. 
-        components_dxi1 += [(cpfuncs_dxi1[i]*cpfuncs[nsd] -\
-            cpfuncs[i]*cpfuncs_dxi1[nsd])/(cpfuncs[nsd]*cpfuncs[nsd]), ]
-        components_dxi2 += [(cpfuncs_dxi2[i]*cpfuncs[nsd] -\
-            cpfuncs[i]*cpfuncs_dxi2[nsd])/(cpfuncs[nsd]*cpfuncs[nsd]), ]
+    cpfuncs_deriv0 = cpfuncs[0]
+    cpfuncs_deriv10 = []
+    cpfuncs_deriv11 = []
+    for i in range(len(cpfuncs[1])):
+        cpfuncs_deriv10 += [cpfuncs[1][i][0]]
+        cpfuncs_deriv11 += [cpfuncs[1][i][1]]
 
-    F = as_vector(components)
-    dFdxi = as_tensor([[components_dxi1[0], components_dxi2[0]],\
-                       [components_dxi1[1], components_dxi2[1]],\
-                       [components_dxi1[2], components_dxi2[2]]])
+    # Reference configuration for mortar mesh
+    F_list = []
+    dFdxi0_list = []
+    dFdxi1_list = []
+    for i in range(len(cpfuncs[0])-1):
+        # Components of reference configuration of mortar mesh
+        F_list += [cpfuncs_deriv0[i]/cpfuncs_deriv0[-1]]
+        # Components of derivatives of reference configuration
+        # of mortar mesh, using quotient rule to compute the 
+        # derivatives: d(f/g) = (df*g-f*dg)/g**2.
+        dFdxi0_list += [(cpfuncs_deriv10[i]*cpfuncs_deriv0[-1] \
+                        -cpfuncs_deriv0[i]*cpfuncs_deriv10[-1])\
+                        /(cpfuncs_deriv0[-1]*cpfuncs_deriv0[-1]),]
+        dFdxi1_list += [(cpfuncs_deriv11[i]*cpfuncs_deriv0[-1] \
+                        -cpfuncs_deriv0[i]*cpfuncs_deriv11[-1])\
+                        /(cpfuncs_deriv0[-1]*cpfuncs_deriv0[-1]),]
+
+    F = as_vector(F_list)
+    dFdxi = as_tensor([[dFdxi0_list[0], dFdxi1_list[0]],\
+                       [dFdxi0_list[1], dFdxi1_list[1]],\
+                       [dFdxi0_list[2], dFdxi1_list[2]]])
     return F, dFdxi
 
-def physical_configuration(cpfuncs, cpfuncs_dxi1, cpfuncs_dxi2, 
-                           F, dFdxi, mortar_vars):
+def physical_configuration(F, dFdxi, cpfuncs, um):
     """
     Return the physical configuration or the deformed state
     of the mortar mesh.
 
     Parameters
     ----------
-    cpfuncs : PETSc.Vec
-    cpfuncs_dxi1 : PETSc.Vec
-    cpfuncs_dxi2 : PETSc.Vec
     F : dolfin ListTensor
     dFdxi : dolfin ListTensor
-    mortar_vars : list of dolfin Functions
+    cpfuncs : list of dolfin Functions
+    um : list of dolfin Functions
 
     Returns
     -------
     x : dolfin ListTensor
     dxdxi : dolfin ListTensor
     """
-    u = mortar_vars[0]/cpfuncs[-1]
-    dudxi1 = (mortar_vars[1]*cpfuncs[-1] - mortar_vars[0]\
-           *cpfuncs_dxi1[-1])/(cpfuncs[-1]**2)
-    dudxi2 = (mortar_vars[2]*cpfuncs[-1] - mortar_vars[0]\
-           *cpfuncs_dxi2[-1])/(cpfuncs[-1]**2)
-    dudxi = as_tensor([[dudxi1[0], dudxi2[0]],\
-                       [dudxi1[1], dudxi2[1]],\
-                       [dudxi1[2], dudxi2[2]]])
-    # Current configure in physical coordinates 'xm' and 
-    # its parametric gradient 'dxmdxi'
+    um_deriv0 = um[0]
+    um_deriv10 = as_vector([um[1][0], um[1][2], um[1][4]])
+    um_deriv11 = as_vector([um[1][1], um[1][3], um[1][5]])
+
+    cpfuncs_deriv0 = cpfuncs[0]
+    cpfuncs_deriv10 = []
+    cpfuncs_deriv11 = []
+    for i in range(len(cpfuncs[1])):
+        cpfuncs_deriv10 += [cpfuncs[1][i][0]]
+        cpfuncs_deriv11 += [cpfuncs[1][i][1]]
+
+    u = um_deriv0/cpfuncs_deriv0[-1]
+    dudxi0 = (um_deriv10*cpfuncs_deriv0[-1] - um_deriv0\
+           *cpfuncs_deriv10[-1])/(cpfuncs_deriv0[-1]**2)
+    dudxi1 = (um_deriv11*cpfuncs_deriv0[-1] - um_deriv0\
+           *cpfuncs_deriv11[-1])/(cpfuncs_deriv0[-1]**2)
+    dudxi = as_tensor([[dudxi0[0], dudxi1[0]],
+                       [dudxi0[1], dudxi1[1]],
+                       [dudxi0[2], dudxi1[2]]])
+    # Current configure in physical coordinates `xm` and 
+    # its parametric gradient `dxmdxi`
     x = u + F
     dxdxi = dudxi + dFdxi
     return x, dxdxi
@@ -185,14 +189,14 @@ def interface_orthonormal_basis(dxdxi):
     e0, e1 = orthonormalize2D(a0, a1)
     return e0, e1, a2
 
-def project_normal_vector_onto_tangent_space(to_project, e1, e2):
+def project_normal_vector_onto_tangent_space(to_project, e0, e1):
     """
     Project a normal vector on to the tangent space of a surface
     """
-    res = inner(to_project, e1)*e1 + inner(to_project, e2)*e2
+    res = inner(to_project, e0)*e0 + inner(to_project, e1)*e1
     return res
 
-def penalty_displacement(alpha_d, u1m_hom, u2m_hom, 
+def penalty_displacement(alpha_d, u0m_hom, u1m_hom, 
                          line_Jacobian=None, dx_m=None):
     """
     Penalization of displacements on the non-matching 
@@ -201,9 +205,8 @@ def penalty_displacement(alpha_d, u1m_hom, u2m_hom,
     Parameters
     ----------
     alpha_d : ufl.algebra.Division
+    u0m_hom : dolfin Function
     u1m_hom : dolfin Function
-    u2m_hom : dolfin Function
-    # dXdxi : dolfin ListTensor
     line_Jacobian : dolfin Function or None, optional
     dx_m : ufl Measure
 
@@ -215,10 +218,10 @@ def penalty_displacement(alpha_d, u1m_hom, u2m_hom,
         line_Jacobian = Constant(1.)
     if dx_m is None:
         dx_m = dx
-    W_pd = 0.5*alpha_d*((u1m_hom-u2m_hom)**2)*line_Jacobian*dx_m
+    W_pd = 0.5*alpha_d*((u0m_hom-u1m_hom)**2)*line_Jacobian*dx_m
     return W_pd
 
-def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, t11, t21, 
+def penalty_rotation(mortar_mesh, alpha_r, dX0dxi, dx0dxi, dX1dxi, dx1dxi, 
                      line_Jacobian=None, dx_m=None):
     """
     Penalization of rotation on the non-matching interface 
@@ -226,16 +229,18 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, t11, t21,
 
     Parameters
     ----------
+    mortar_mesh : dolfin Mesh
     alpha_r : ufl.algebra.Division
-    u1m_hom : dolfin Function
-    u2m_hom : dolfin Function
-    dXdxi : dolfin ListTensor
+    dX0dxi : dolfin ListTensor
+    dx0dxi : dolfin ListTensor
+    dX1dxi : dolfin ListTensor
+    dx1dxi : dolfin ListTensor
     line_Jacobian : dolfin Function or None, optional
     dx_m : ufl Measure or None, optional
 
     Return
     ------
-    W_pd : ufl Form
+    W_pr : ufl Form
     """
     # print("New penatly rotation")
     if line_Jacobian is None:
@@ -243,24 +248,24 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, t11, t21,
     if dx_m is None:
         dx_m = dx
 
+    # Orthonormal basis for patch 0
+    a00, a01, a02 = interface_geometry(dx0dxi)
+    A00, A01, A02 = interface_geometry(dX0dxi)
+
     # Orthonormal basis for patch 1
-    a11, a21, a31 = interface_geometry(dx1dxi)
-    A11, A21, A31 = interface_geometry(dX1dxi)
+    a10, a11, a12 = interface_geometry(dx1dxi)
+    A10, A11, A12 = interface_geometry(dX1dxi)
 
-    # Orthonormal basis for patch 2
-    a12, a22, a32 = interface_geometry(dx2dxi)
-    A12, A22, A32 = interface_geometry(dX2dxi)
+    xi = SpatialCoordinate(mortar_mesh)
+    t = Jacobian(xi)
+    at0 = t[0,0]*a00 + t[1,0]*a01
+    At0 = t[0,0]*A00 + t[1,0]*A01
 
-    at1 = t11*a11 + t21*a21
-    At1 = t11*A11 + t21*A21
+    an1 = cross(a02, at0)/sqrt(inner(at0, at0))
+    An1 = cross(A02, At0)/sqrt(inner(At0, At0))
 
-    an1 = cross(a31, at1)/sqrt(inner(at1, at1))
-    An1 = cross(A31, At1)/sqrt(inner(At1, At1))
-
-    # print("Using updated penalty of rotation ...")
-
-    W_pr = 0.5*alpha_r*((inner(a31, a32) - inner(A31, A32))**2 
-         + (inner(an1, a32) - inner(An1, A32))**2)*line_Jacobian*dx_m
+    W_pr = 0.5*alpha_r*((inner(a02, a12) - inner(A02, A12))**2 
+         + (inner(an1, a12) - inner(An1, A12))**2)*line_Jacobian*dx_m
 
     return W_pr
 
@@ -281,7 +286,7 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, t11, t21,
 
 #     Return
 #     ------
-#     W_pd : ufl Form
+#     W_pr : ufl Form
 #     """
 #     # print("New penatly rotation")
 #     if line_Jacobian is None:
@@ -329,7 +334,7 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, t11, t21,
 
 #     Return
 #     ------
-#     W_pd : ufl Form
+#     W_pr : ufl Form
 #     """
 #     # print("Old penatly rotation")
 #     # For patch 1
@@ -349,9 +354,9 @@ def penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, t11, t21,
 #          + (dot(e31, a32)-dot(E31, A32))**2)*line_Jacobian*dx_m
 #     return W_pr
 
-def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control, 
-                   A1_control, A2_control, alpha_d, alpha_r, 
-                   mortar_vars1, mortar_vars2, t11, t21,
+def penalty_energy(spline0, spline1, u0, u1, 
+                   mortar_mesh, mortar_funcs, mortar_cpfuncs, 
+                   A, A_control, alpha_d, alpha_r, 
                    dx_m=None, metadata=None):
     """
     Penalization of displacement and rotation of non-matching interface 
@@ -359,40 +364,46 @@ def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control,
     
     Parameters
     ----------
+    spline0 : ExtractedSpline
     spline1 : ExtractedSpline
-    spline2 : ExtractedSpline
-    Vm_control : dolfin FunctionSpace
-    dVm_control : dolfin FunctionSpace
-    A1_control : list of dolfin PETScMatrices
-    A2_control : list of dolfin PETScMatrices
+    u0 : dolfin Function, displacement of spline0
+    u1 : dolfin Function, displacement of splint1
+    mortar_mesh : dolfin Mesh
+    mortar_funcs : list of dolfin Functions, mortar mesh's displacement
+        and first derivatives on two sides
+    mortar_cpfuncs : list of dolfin Functions, mortar mesh's control
+        point functions and first derivatives on two sides
+    A : list of dolfin PETScMatrices, transfer matrices for displacements
+    A_control : list of dolfin PETScMatrices, transfer matrices
+        for control point functions
     alpha_d : ufl.algebra.Division
     alpha_r : ufl.algebra.Division
-    mortar_vars1 : list of dolfin Functions
-    mortar_vars2 : list of dolfin Functions
     dx_m : ufl Measure or None
-    quadrature_degree : int, default is 2.
+    quadrature_degree : int, default is 2
 
     Returns
     -------
     W_p : ufl Form
     """
-    cpfuncs1, cpfuncs1_dxi1, cpfuncs1_dxi2 = transfer_cpfuns(spline1, 
-                                             Vm_control, dVm_control, 
-                                             A1_control)
-    X1, dX1dxi = create_geometrical_mapping(spline1, cpfuncs1, cpfuncs1_dxi1, 
-                                            cpfuncs1_dxi2)
-    x1, dx1dxi = physical_configuration(cpfuncs1, cpfuncs1_dxi1, 
-                                        cpfuncs1_dxi2, X1, dX1dxi, 
-                                        mortar_vars1)
+    splines = [spline0, spline1]
+    spline_u = [u0, u1]
+    mortar_X = []
+    mortar_dXdxi = []
+    mortar_x = []
+    mortar_dxdxi = []
+    for side in range(len(mortar_funcs)):
+        transfer_mortar_u(spline_u[side], mortar_funcs[side], A[side])
+        transfer_mortar_cpfuns(splines[side], mortar_cpfuncs[side], 
+                               A_control[side])
+        X_temp, dXdxi_temp = create_geometrical_mapping(splines[side], 
+                             mortar_cpfuncs[side])
+        mortar_X += [X_temp]
+        mortar_dXdxi += [dXdxi_temp]
+        x_temp, dxdxi_temp = physical_configuration(X_temp, dXdxi_temp, 
+                             mortar_cpfuncs[side], mortar_funcs[side])
+        mortar_x += [x_temp]
+        mortar_dxdxi += [dxdxi_temp]
 
-    cpfuncs2, cpfuncs2_dxi1, cpfuncs2_dxi2 = transfer_cpfuns(spline2, 
-                                             Vm_control, dVm_control, 
-                                             A2_control)
-    X2, dX2dxi = create_geometrical_mapping(spline2, cpfuncs2, cpfuncs2_dxi1, 
-                                            cpfuncs2_dxi2)
-    x2, dx2dxi = physical_configuration(cpfuncs2, cpfuncs2_dxi1, 
-                                        cpfuncs2_dxi2, X2, dX2dxi, 
-                                        mortar_vars2)
     if dx_m is not None:
         dx_m = dx_m
     else:
@@ -402,16 +413,19 @@ def penalty_energy(spline1, spline2, mortar_mesh, Vm_control, dVm_control,
             dx_m = dx(domain=mortar_mesh, metadata={'quadrature_degree': 0, 
                                           'quadrature_scheme': 'vertex'})
 
-    line_Jacobian = compute_line_Jacobian(X2)
+    line_Jacobian = compute_line_Jacobian(mortar_X[1])
     if line_Jacobian == 0.:
-        line_Jacobian = sqrt(tr(dX2dxi*dX2dxi.T))
+        line_Jacobian = sqrt(tr(mortar_dXdxi[1]*mortar_dXdxi[1].T))
 
     # Penalty of displacement
-    W_pd = penalty_displacement(alpha_d, mortar_vars1[0], mortar_vars2[0], 
+    W_pd = penalty_displacement(alpha_d, 
+                                mortar_funcs[0][0], mortar_funcs[1][0], 
                                 line_Jacobian, dx_m)
     # Penalty of rotation
-    W_pr = penalty_rotation(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, 
-                            t11, t21, line_Jacobian, dx_m)
+    W_pr = penalty_rotation(mortar_mesh, alpha_r, 
+                            mortar_dXdxi[0], mortar_dxdxi[0], 
+                            mortar_dXdxi[1], mortar_dxdxi[1], 
+                            line_Jacobian, dx_m)
     W_p = W_pd + W_pr
     return W_p
 
@@ -441,40 +455,6 @@ def SVK_residual(spline, u_hom, z_hom, E, nu, h, dWext):
     dWint = derivative(Wint, u_hom, z_hom)
     res = dWint - dWext
     return res
-
-# def hyperelastic_residual(spline, u_hom, z_hom, E, nu, h, dWext, quad_pts=4):
-#     """
-#     PDE residual for Kirchhoff--Love shell using incompressible 
-#     hyperelastic model. Assume Neo-Hookean material.
-
-#     Parameters
-#     ----------
-#     spline : ExtractedSpline
-#     u_hom : dolfin Function
-#     z_hom : dolfin Argument
-#     E : dolfin Constant
-#     h : dolfin Constant
-#     dWext : dolfin Form
-
-#     Returns
-#     -------
-#     res: dolfin Form
-#     """
-#     mu = E/(2*(1+nu))
-#     X = spline.F
-#     x = X + spline.rationalize(u_hom)
-#     def psi_el(E_):
-#         # Neo-Hookean potential
-#         C = 2.0*E_ + Identity(3)
-#         I1 = tr(C)
-#         return 0.5*mu*(I1 - 3.0)
-#     dxi2 = throughThicknessMeasure(quad_pts, h)
-#     psi = incompressiblePotentialKL(spline, X, x, psi_el)
-#     Wint = psi*dxi2*spline.dx
-#     dWint = derivative(Wint, u_hom, z_hom)
-#     res = dWint - dWext
-#     return res
-
 
 def hyperelastic_residual(spline, u_hom, z_hom, h, psi_el, dWext, quad_pts=4):
     """

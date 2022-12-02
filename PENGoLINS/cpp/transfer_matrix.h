@@ -38,17 +38,17 @@ namespace dolfin
   ///
   /// Warning: This classs is highly experimental and will change
 
-  class PETScDMCollectionTemp : public PETScObject
+  class PETScDMCollectionCustom : public PETScObject
   {
   public:
 
-    /// Construct PETScDMCollectionTemp from a vector of
+    /// Construct PETScDMCollectionCustom from a vector of
     /// FunctionSpaces. The vector of FunctionSpaces is stored from
     /// coarse to fine.
-    PETScDMCollectionTemp(std::vector<std::shared_ptr<const FunctionSpace>> function_spaces);
+    PETScDMCollectionCustom(std::vector<std::shared_ptr<const FunctionSpace>> function_spaces);
 
     /// Destructor
-    ~PETScDMCollectionTemp();
+    ~PETScDMCollectionCustom();
 
     /// Return the ith DM objects. The coarest DM has index 0. Use
     /// i=-1 to get the DM for the finest level, i=-2 for the DM for
@@ -65,11 +65,8 @@ namespace dolfin
     /// space (prolongation matrix)
     static std::shared_ptr<PETScMatrix>
       create_transfer_matrix(const FunctionSpace& coarse_space,
-                             const FunctionSpace& fine_space);
-
-    static std::shared_ptr<PETScMatrix>
-      create_transfer_matrix_partial_derivative(const FunctionSpace& coarse_space,
-                             const FunctionSpace& fine_space, std::size_t partial_dir);
+                             const FunctionSpace& fine_space,
+                             std::size_t deriv);
 
   private:
 
@@ -82,7 +79,6 @@ namespace dolfin
                                      std::vector<int>& indices,
                                      std::vector<std::size_t>& cell_ids,
                                      std::vector<double>& points);
-
 
     // Pointers to functions that are used in PETSc DM call-backs
     static PetscErrorCode create_global_vector(DM dm, Vec* vec);

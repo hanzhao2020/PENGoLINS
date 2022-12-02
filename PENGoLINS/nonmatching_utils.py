@@ -323,7 +323,7 @@ def zero_petsc_mat(row, col, mat_type=None,
     A.assemble()
     return A
 
-def penalty_differentiation(PE, vars1=[], vars2=[]):
+def penalty_residual(PE, mortar_funcs):
     """
     Compute the differentiation of penalty energy ``PE`` w.r.t. 
     variables ``vars1`` and ``vars2``.
@@ -331,70 +331,69 @@ def penalty_differentiation(PE, vars1=[], vars2=[]):
     Parameters
     -----------
     PE : ufl Form
-    vars1 : list of dolfin Functions
-    vars2 : list of dolfin Functions
+    mortar_funcs : list of dolfin Functions
 
     Returns
     -------
-    R_list : list of ufl Forms, rank 2, 2x3
+    R_list : list of ufl Forms, rank 2, 2x2
     """
-    R1_list = []
-    R2_list = []
-    for i in range(len(vars1)):
-        R1_list += [derivative(PE, vars1[i])]
-        R2_list += [derivative(PE, vars2[i])]
-    R_list = [R1_list, R2_list]
+    R_list = [[None for j in range(len(mortar_funcs[i]))] 
+              for i in range(len(mortar_funcs))]
+    for i in range(len(mortar_funcs)):
+        for j in range(len(mortar_funcs[i])):
+            R_list[i][j] = derivative(PE, mortar_funcs[i][j])
     return R_list
 
-def penalty_linearization(R_list, vars1=[], vars2=[]):
+def penalty_residual_deriv(R_list, mortar_funcs):
     """
     Compute the Jacobian of residuals of penalty energy "R_list"
     w.r.t. variables "vars1" and "vars2".
 
     Parameters
     -----------
-    R_list : list of ufl Forms, rank 2, 2x3
-    vars1 : list of dolfin Functions
-    vars2 : list of dolfin Functions
+    R_list : list of ufl Forms, rank 2, 2x2
+    mortar_funcs : list of dolfin Functions
 
     Returns
     -------
-    dR_du_list : list of ufl Forms, rank 4, 2x2x3x3
+    dR_du_list : list of ufl Forms, rank 4, 2x2x2x2
     """
-    vars_list = [vars1, vars2]
-    num_R = len(R_list[0]) #3
-    num_vars = len(vars_list[0]) #3
+    dR_du_list = [[[[None for l in range(len(mortar_funcs[k]))]
+                     for j in range(len(R_list[i]))]
+                     for k in range(len(mortar_funcs))]
+                     for i in range(len(R_list))]
 
-    dR_du_list = [[None for i1 in range(len(vars_list))] \
-                        for i2 in range(len(R_list))]
     for i in range(len(R_list)):
-        for j in range(len(vars_list)):
-            dR_du_list[i][j] = [[None for i1 in range(num_vars)] \
-                                      for i2 in range(num_R)]
-            for m in range(num_R):
-                for n in range(num_vars):
-                    dR_du_list[i][j][m][n] = \
-                        derivative(R_list[i][m], vars_list[j][n])
-
+        for k in range(len(mortar_funcs)):
+            if k == i:
+                for j in range(len(R_list[i])):
+                    for l in range(j, len(mortar_funcs[k])):
+                        dR_du_list[i][k][j][l] = \
+                            derivative(R_list[i][j], mortar_funcs[k][l])
+                            #str(i) + str(j) + " " + str(k) + str(l)
+            elif k > i:
+                for j in range(len(R_list[i])):
+                    for l in range(len(mortar_funcs[k])):
+                        dR_du_list[i][k][j][l] = \
+                            derivative(R_list[i][j], mortar_funcs[k][l])
+                            # str(i) + str(j) + " " + str(k) + str(l)
     return dR_du_list
 
-def transfer_penalty_differentiation(R_list, A1_list, A2_list):
+def transfer_penalty_residual(R_list, A_list):
     """
     Compute the contribution of the residuals of the penalty terms on 
     RHS using transfer matrices.
 
     Parameters
     ----------
-    R_list : list of ufl Forms, rank 2
-    A1_list : list of dolfin PETScMatrix
-    A2_list : list of dolfin PETScMatrix
+    R_list : list of ufl Forms, rank 2, 2x2
+    A_list : list of dolfin PETScMatrix
 
     Returns
     -------
     R : list of petsc4py.PETSc.Vecs, size of 2
     """
-    R = [None for i1 in range(len(R_list))]
-    A_list = [A1_list, A2_list]
+    R = [None for i in range(len(R_list))]
     for i in range(len(R_list)):
         for j in range(len(R_list[i])):
             if R[i] is not None:
@@ -403,38 +402,74 @@ def transfer_penalty_differentiation(R_list, A1_list, A2_list):
                 R[i] = AT_x(A_list[i][j], assemble(R_list[i][j]))
     return R
 
-def transfer_penalty_linearization(dR_du_list, A1_list, A2_list):
+def transfer_penalty_residual_deriv(dR_du_list, A_list):
     """
     Compute the contribution of the Jacobian of the penalty terms on 
     LHS using transfer matrix.
 
     Parameters
     ----------
-    dR_du_list : list of ufl Forms, rank 4
-    A1_list : list of dolfin PETScMatrix
-    A2_list : list of dolfin PETScMatrix
+    dR_du_list : list of ufl Forms, rank 4, 2x2x2x2
+    A_list : list of dolfin PETScMatrix
 
     Returns
     -------
     dR_du : list of petsc4py.PETSc.Mats, rank 2, size of 2x2
     """
-    dR_du = [[None for i1 in range(len(dR_du_list[0]))] \
-                   for i2 in range(len(dR_du_list))]
+    dR_du_mortar = [[[[None for l in range(len(dR_du_list[i][j][k]))]
+                       for k in range(len(dR_du_list[i][j]))]
+                       for j in range(len(dR_du_list[i]))]
+                       for i in range(len(dR_du_list))]
+    dR_du_IGA = [[None for j in range(len(dR_du_list[i]))]
+                       for i in range(len(dR_du_list))]
 
-    A_list = [A1_list, A2_list]
     for i in range(len(dR_du_list)):
         for j in range(len(dR_du_list[i])):
-            for m in range(len(dR_du_list[i][j])):
-                for n in range(len(dR_du_list[i][j][m])):
-                    if dR_du[i][j] is not None:
-                        dR_du[i][j] += AT_R_B(m2p(A_list[i][m]), 
-                            m2p(assemble(dR_du_list[i][j][m][n])), 
-                            m2p(A_list[j][n]))
-                    else:
-                        dR_du[i][j] = AT_R_B(m2p(A_list[i][m]), 
-                            m2p(assemble(dR_du_list[i][j][m][n])), 
-                            m2p(A_list[j][n]))
-    return dR_du
+            if i == j:
+                for k in range(len(dR_du_list[i][j])):
+                    for l in range(k, len(dR_du_list[i][j][k])):
+                        dR_du_mortar[i][j][k][l] = m2p(
+                            assemble(dR_du_list[i][j][k][l]))
+            elif i < j:
+                for k in range(len(dR_du_list[i][j])):
+                    for l in range(len(dR_du_list[i][j][k])):
+                        dR_du_mortar[i][j][k][l] = m2p(
+                            assemble(dR_du_list[i][j][k][l]))
+
+    for i in range(len(dR_du_list)):
+        for j in range(len(dR_du_list)):
+            if i == j:
+                for k in range(len(dR_du_list[i][j])):
+                    for l in range(k, len(dR_du_list[i][j][k])):
+                        dR_du_temp = AT_R_B(m2p(A_list[i][k]), 
+                            dR_du_mortar[i][j][k][l], m2p(A_list[j][l]))
+                        if k == l:
+                            if dR_du_IGA[i][j] is None: 
+                                dR_du_IGA[i][j] = dR_du_temp
+                            else:
+                                dR_du_IGA[i][j] += dR_du_temp
+                        elif k < l:
+                            # Add the off-diagonal contribution twice
+                            # due to symmetry of the block matrix
+                            dR_du_temp_T = dR_du_temp.copy()
+                            dR_du_temp_T.transpose()
+                            dR_du_IGA[i][j] += dR_du_temp
+                            dR_du_IGA[i][j] += dR_du_temp_T
+            elif i < j:
+                for k in range(len(dR_du_list[i][j])):
+                    for l in range(len(dR_du_list[i][j][k])):
+                        dR_du_temp = AT_R_B(m2p(A_list[i][k]), 
+                            dR_du_mortar[i][j][k][l], m2p(A_list[j][l]))
+                        if dR_du_IGA[i][j] is None: 
+                                dR_du_IGA[i][j] = dR_du_temp
+                        else:
+                            dR_du_IGA[i][j] += dR_du_temp
+            elif i > j:
+                # # Leave lower off-diagonal block as none
+                # dR_du_temp = dR_du_IGA[j][i].copy()
+                # dR_du_IGA[i][j] = dR_du_temp.transpose()
+                pass
+    return dR_du_IGA
 
 def R2IGA(splines, R):
     """
