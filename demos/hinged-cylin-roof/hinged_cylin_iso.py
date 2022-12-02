@@ -123,8 +123,6 @@ for j in range(num_interfaces):
         mortar_mesh_locations += [h_mortar_locs]
 
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
                             penalty_coefficient)
 
@@ -134,28 +132,28 @@ w_ref = [0.693, 1.638, 3.087, 4.477, 5.802, 7.057,
               8.237, 9.339, 10.358]
 
 force_ratio_list = np.array(force_ratio_ref)
-w_list = []
+
+source_terms = []
+residuals = []
+f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+for i in range(len(splines)):
+    source_terms += [inner(f0, problem.splines[i].rationalize(
+    problem.spline_test_funcs[i]))*problem.splines[i].dx]
+    residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
+        problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
+problem.set_residuals(residuals)
 
 ps_w = splines[4].cpFuncs[3](np.array([0.5,0.5]))
+ps_ind = [4,]
+w_list = []
 
 for step, force_ratio in enumerate(force_ratio_list):
-
-    f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-
-    ps_ind = [4,]
+    print("Step {}, force ratio: {}".format(step, force_ratio))
+    
     ps0 = PointSource(splines[ps_ind[0]].V.sub(1), Point(.5,.5), 
                       force_ratio*P_max/ps_w)
     ps_list = [ps0,]
-
-    source_terms = []
-    residuals = []
-    for i in range(len(splines)):
-        source_terms += [inner(f0, problem.splines[i].rationalize(
-        problem.spline_test_funcs[i]))*problem.splines[i].dx]
-        residuals += [SVK_residual(problem.splines[i], problem.spline_funcs[i], 
-            problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
-    problem.set_residuals(residuals, point_sources=ps_list,
-                          point_source_inds=ps_ind)
+    problem.set_point_sources(ps_list, ps_ind)
 
     if mpirank == 0:
         print("Solving linear non-matching problem...")
@@ -172,10 +170,7 @@ for step, force_ratio in enumerate(force_ratio_list):
     if mpirank == 0:
         print("Quantity of interest for patch {} = {:10.8f} (Reference "
               "value = {}).".format(spline_ind, QoI, w_ref[step]))
-
     w_list += [QoI,]
-
-
 
 point_load_ref = np.array(force_ratio_ref)*P_max
 point_load_list = np.array(force_ratio_list)*P_max
@@ -198,7 +193,7 @@ plt.ylabel("Point load")
 plt.legend()
 plt.show()
 
-SAVE_PATH = "./"
+SAVE_PATH = "./results_iso/"
 for i in range(problem.num_splines):
     save_results(problem.splines[i], problem.spline_funcs[i], i, 
                 save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)

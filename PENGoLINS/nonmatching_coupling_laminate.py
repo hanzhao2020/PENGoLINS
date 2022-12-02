@@ -128,8 +128,8 @@ class NonMatchingCouplingLaminate(NonMatchingCoupling):
     Coupling of non-matching problem for laminated shells.
     """
     def __init__(self, splines, h_th, A_mat, B_mat, D_mat, 
-                 num_field=3, contact=None, int_measure_metadata=None, 
-                 comm=None):
+                 num_field=3, int_V_family='CG', int_V_degree=1,
+                 int_dx_metadata=None, contact=None, comm=None):
         """
         Parameters
         ----------
@@ -140,15 +140,21 @@ class NonMatchingCouplingLaminate(NonMatchingCoupling):
         D_mat : ufl matrix, bending matrix
         num_field : int, optional
             Number of field of the unknowns. Default is 3.
+        int_V_family : str, optional, element family for 
+            mortar meshes. Default is 'CG'.
+        int_V_degree : int, optional, default is 1.
+        int_dx_metadata : dict, optional
+            Metadata information for integration measure of 
+            intersection curves. Default is vertex quadrature
+            with degree 0.
         contact : ShNAPr.contact.ShellContactContext, optional
-        int_measure_metadata : dict, optional
         comm : mpi4py.MPI.Intracomm, optional, default is None.
         """
-
-        super().__init__(splines, E=None, h_th=h_th, nu=None,
-                         num_field=num_field, contact=contact,
-                         int_measure_metadata=int_measure_metadata,
-                         comm=comm)
+        super().__init__(splines, E=None, h_th=h_th, nu=None, 
+                         num_field=num_field, int_V_family=int_V_family,
+                         int_V_degree=int_V_degree, 
+                         int_dx_metadata=int_dx_metadata,
+                         contact=contact, comm=comm)
         self._init_ABD_matrices(A_mat, B_mat, D_mat)
 
     def _init_ABD_matrices(self, A_mat, B_mat, D_mat):
@@ -200,21 +206,11 @@ class NonMatchingCouplingLaminate(NonMatchingCoupling):
         self.alpha_d_list = []
         self.alpha_r_list = []
 
-        for i in range(self.num_interfaces):
+        for i in range(self.num_intersections):
             s_ind0, s_ind1 = self.mapping_list[i]
-            
-            if self.h_th_is_function:
-                A_x_b(self.transfer_matrices_thickness_list[i][0],
-                      self.h_th[s_ind0].vector(), 
-                      self.mortar_h_th[i][0].vector())
-                A_x_b(self.transfer_matrices_thickness_list[i][1],
-                      self.h_th[s_ind1].vector(), 
-                      self.mortar_h_th[i][1].vector())
-                h_th0 = self.mortar_h_th[i][0]
-                h_th1 = self.mortar_h_th[i][1]
-            else:
-                h_th0 = self.h_th[s_ind0]
-                h_th1 = self.h_th[s_ind1]
+
+            h_th0 = self.h_th[s_ind0]
+            h_th1 = self.h_th[s_ind1]
 
             # # Use symbolic max Aij in the penalty parameters will
             # # solw the code performance.
@@ -229,8 +225,8 @@ class NonMatchingCouplingLaminate(NonMatchingCoupling):
             max_Dij1_sym = self.max_matij(self.D_mat[s_ind1])
             max_Aij0 = project(max_Aij0_sym, self.Vms_control[i])
             max_Aij1 = project(max_Aij1_sym, self.Vms_control[i])
-            max_Dij0 = project(max_Dij1_sym, self.dVms_control[i])
-            max_Dij1 = project(max_Dij1_sym, self.dVms_control[i])
+            max_Dij0 = project(max_Dij1_sym, self.Vms_control[i])
+            max_Dij1 = project(max_Dij1_sym, self.Vms_control[i])
 
             if method == 'minimum':
                 alpha_d = Constant(self.penalty_coefficient)\

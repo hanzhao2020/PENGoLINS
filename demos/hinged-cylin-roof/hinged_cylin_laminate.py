@@ -47,16 +47,34 @@ ET = Constant(1100)
 nuLT = Constant(0.25)
 nuTL = ET*nuLT/EL
 GLT = Constant(660)
+lamination = '0-90-0'
+# lamination = '90-0-90'
 
-# # # For lamination [90, 0, 90]
-# alpha_list = [90, 0, 90]
-# # force_ratio = 0.0556
-# # QoI_ref = 0.649
+if lamination == '0-90-0':
+    # Data for lamination [0, 90, 0]
+    alpha_list = [0, 90, 0]
+    # force_ratio = 0.0546
+    # QoI_ref = 0.807
+    # For thickness 12.7 and lamination [0/90/0]
+    force_ratio_ref = [0.0546, 0.1245, 0.1938, 0.2494, 0.2925, 0.3244,
+                        0.3459, 0.3582]
+    w_ref = [0.807, 1.956, 3.281, 4.548, 5.753, 6.892,
+             7.961, 8.959]
+    data_file = 'hinged_cylin_0_90_0.npz'
+    SAVE_PATH = "./results_0_90_0/"
+elif lamination == '90-0-90':
+    # Data for lamination [90, 0, 90]
+    alpha_list = [90, 0, 90]
+    # force_ratio = 0.0556
+    # QoI_ref = 0.649
+    # For thickness 12.7 and lamination [90/0/90]
+    force_ratio_ref = [0.0556, 0.1299, 0.2090, 0.2784, 0.3389, 0.3914,
+                       0.4365, 0.4748, 0.5070, 0.5336, 0.5550, 0.5716]
+    w_ref = [0.649, 1.581, 2.673, 3.740, 4.781, 5.794,
+             6.777, 7.731, 8.654, 9.545, 10.404, 11.231]
+    data_file = 'hinged_cylin_90_0_90.npz'
+    SAVE_PATH = "./results_90_0_90/"
 
-# For lamination [0, 90, 0]
-alpha_list = [0, 90, 0]
-force_ratio = 0.0546
-QoI_ref = 0.807
 
 n_ply = len(alpha_list)
 D_ort = orthotropic_mat(ET, EL, nuTL, GLT)
@@ -136,52 +154,35 @@ for j in range(num_interfaces):
         mortar_mesh_locations += [h_mortar_locs]
 
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
                             penalty_coefficient)
 
-
-# For thickness 12.7 and lamination [0/90/0]
-force_ratio_ref = [0.0546, 0.1245, 0.1938, 0.2494, 0.2925, 0.3244,
-                    0.3459, 0.3582]
-w_ref = [0.807, 1.956, 3.281, 4.548, 5.753, 6.892,
-              7.961, 8.959]
-
-# # For thickness 12.7 and lamination [90/0/90]
-# force_ratio_ref = [0.0556, 0.1299, 0.2090, 0.2784, 0.3389, 0.3914,
-#                    0.4365, 0.4748, 0.5070, 0.5336, 0.5550, 0.5716]
-# w_ref = [0.649, 1.581, 2.673, 3.740, 4.781, 5.794,
-#          6.777, 7.731, 8.654, 9.545, 10.404, 11.231]
-
 force_ratio_list = np.array(force_ratio_ref)
-w_list = []
+
+source_terms = []
+residuals = []
+f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+for i in range(len(splines)):
+    source_terms += [inner(f0, problem.splines[i].rationalize(
+    problem.spline_test_funcs[i]))*problem.splines[i].dx]
+    residuals += [SVK_residual_laminate(problem.splines[i], 
+                  problem.spline_funcs[i], 
+                  problem.spline_test_funcs[i], 
+                  h_th, A_mat, B_mat, D_mat, 
+                  source_terms[i])]
+problem.set_residuals(residuals)
 
 ps_w = splines[4].cpFuncs[3](np.array([0.5,0.5]))
+ps_ind = [4,]
+w_list = []
 
 for step, force_ratio in enumerate(force_ratio_list):
     print("Step {}, force ratio: {}".format(step, force_ratio))
-
-    # tip_load = force_ratio*P_max
-    f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-
-    ps_ind = [4,]
+    
     ps0 = PointSource(splines[ps_ind[0]].V.sub(1), Point(.5,.5), 
                       force_ratio*P_max/ps_w)
     ps_list = [ps0,]
-
-    source_terms = []
-    residuals = []
-    for i in range(len(splines)):
-        source_terms += [inner(f0, problem.splines[i].rationalize(
-        problem.spline_test_funcs[i]))*problem.splines[i].dx]
-        residuals += [SVK_residual_laminate(problem.splines[i], 
-                      problem.spline_funcs[i], 
-                      problem.spline_test_funcs[i], 
-                      h_th, A_mat, B_mat, D_mat, 
-                      source_terms[i])]
-    problem.set_residuals(residuals, point_sources=ps_list,
-                          point_source_inds=ps_ind)
+    problem.set_point_sources(ps_list, ps_ind)
 
     if mpirank == 0:
         print("Solving linear non-matching problem...")
@@ -206,13 +207,10 @@ point_load_list = np.array(force_ratio_list)*P_max
 point_load_list = np.insert(point_load_list, 0, 0)
 w_ref = np.insert(w_ref, 0, 0)
 w_list = np.insert(w_list, 0, 0)
-# data_file = 'hinged_cylin_90_0_90.npz'
-data_file = 'hinged_cylin_0_90_0.npz'
 np.savez(data_file, force_ref=point_load_ref, w_ref=w_ref, 
-                    force=point_load_list, w=w_list)
+         force=point_load_list, w=w_list)
 
 # Save results to pvd files
-SAVE_PATH = "./"
 for i in range(problem.num_splines):
     save_results(problem.splines[i], problem.spline_funcs[i], i, 
                 save_cpfuncs=True, save_path=SAVE_PATH, comm=problem.comm)
