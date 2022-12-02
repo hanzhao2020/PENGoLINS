@@ -82,8 +82,6 @@ for i in range(num_surfs):
 # Create non-matching problem
 problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
 problem.create_mortar_meshes(preprocessor.mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 
 if mpirank == 0:
     print("Setting up mortar meshes...")
@@ -92,11 +90,10 @@ problem.mortar_meshes_setup(preprocessor.mapping_list,
                             preprocessor.intersections_para_coords, 
                             penalty_coefficient)
 
-# ############ Time integration #############
-# Time integration part
+# Create time integrators
 rho_inf = Constant(0.5)
-delta_t = Constant(2e-5)
-n_steps = 800
+delta_t = Constant(1e-4)
+n_steps = 100
 dens = Constant(1.)
 
 y_old_hom_list = []
@@ -118,8 +115,32 @@ for i in range(num_surfs):
     yddot_alpha_list += [problem.splines[i].rationalize(time_integrator_list[i].xddot_alpha())]
     time_integrator_list[i].xdot_old.interpolate(Expression(("-1.0","0.0","0.0"),degree=1))
 
+# Create SVK residuals
 pressure = Constant(5e3)
-# Create files
+source_terms = []
+res_list = []
+dMass_list = []
+residuals = []
+
+# Follower pressure
+for i in range(len(splines)):
+    A0,A1,A2,dA2,A,B = surfaceGeometry(problem.splines[i], 
+                                       problem.splines[i].F)
+    a0,a1,a2,da2,a,b = surfaceGeometry(problem.splines[i], 
+                       problem.splines[i].F+problem.spline_funcs[i])
+    source_terms += [(pressure)*sqrt(det(a)/det(A))\
+                 *inner(a2,problem.splines[i].rationalize(
+                  problem.spline_test_funcs[i]))*problem.splines[i].dx,]
+    res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
+                 *SVK_residual(problem.splines[i], problem.spline_funcs[i],
+                 problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
+    dMass_list += [dens*h_th*inner(yddot_alpha_list[i],
+                   problem.spline_test_funcs[i])*problem.splines[i].dx,]
+    residuals += [res_list[i]+dMass_list[i]]
+
+problem.set_residuals(residuals)
+
+# Create pvd files
 FILE_FOLDER = "results/"
 u_file_names = []
 u_files = []
@@ -132,22 +153,25 @@ for i in range(num_surfs):
     F_files += [[],]
     for j in range(3):
         # print("J:", j)
-        u_file_names[i] += [SAVE_PATH+FILE_FOLDER+"u"+str(i)+"_"+str(j)+"_file.pvd",]
+        u_file_names[i] += [SAVE_PATH+FILE_FOLDER+"u"
+                            +str(i)+"_"+str(j)+"_file.pvd",]
         u_files[i] += [File(u_file_names[i][j]),]
-        F_file_names[i] += [SAVE_PATH+FILE_FOLDER+"F"+str(i)+"_"+str(j)+"_file.pvd",]
+        F_file_names[i] += [SAVE_PATH+FILE_FOLDER+"F"
+                            +str(i)+"_"+str(j)+"_file.pvd",]
         F_files[i] += [File(F_file_names[i][j]),]
         if j == 2:
-            F_file_names[i] += [SAVE_PATH+FILE_FOLDER+"F"+str(i)+"_3_file.pvd",]
+            F_file_names[i] += [SAVE_PATH+FILE_FOLDER+"F"
+                                +str(i)+"_3_file.pvd",]
             F_files[i] += [File(F_file_names[i][3]),]
 
 for time_iter in range(n_steps):
-    ####################################################################
     # Save initial zero solution
     if time_iter == 0:
         for i in range(num_surfs):
             soln_split = problem.spline_funcs[i].split()
             for j in range(3):
-                soln_split[j].rename("u"+str(i)+"_"+str(j), "u"+str(i)+"_"+str(j))
+                soln_split[j].rename("u"+str(i)+"_"+str(j), 
+                                     "u"+str(i)+"_"+str(j))
                 u_files[i][j] << soln_split[j]
                 problem.splines[i].cpFuncs[j].rename("F"+str(i)+"_"+str(j),
                                                      "F"+str(i)+"_"+str(j))
@@ -156,30 +180,8 @@ for time_iter in range(n_steps):
                     problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
-    #####################################################################
 
-    source_terms = []
-    res_list = []
-    dMass_list = []
-    residuals = []
-    
-    # Following pressure
-    for i in range(len(splines)):
-        A0,A1,A2,dA2,A,B = surfaceGeometry(problem.splines[i], 
-                                           problem.splines[i].F)
-        a0,a1,a2,da2,a,b = surfaceGeometry(problem.splines[i], 
-                           problem.splines[i].F+problem.spline_funcs[i])
-        source_terms += [(pressure)*sqrt(det(a)/det(A))\
-                     *inner(a2,problem.splines[i].rationalize(
-                      problem.spline_test_funcs[i]))*problem.splines[i].dx,]
-        res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
-                     *SVK_residual(problem.splines[i], problem.spline_funcs[i],
-                     problem.spline_test_funcs[i], E, nu, h_th, source_terms[i])]
-        dMass_list += [dens*h_th*inner(yddot_alpha_list[i],
-                       problem.spline_test_funcs[i])*problem.splines[i].dx,]
-        residuals += [res_list[i]+dMass_list[i]]
-
-    problem.set_residuals(residuals)
+    # Solve nonlinear problem
     print("--- Step:", time_iter, ", time:", time_integrator_list[i].t, "---")
     soln = problem.solve_nonlinear_nonmatching_problem(rtol=1e-2, max_it=30, 
                                                        zero_mortar_funcs=False)

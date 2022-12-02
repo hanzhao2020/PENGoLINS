@@ -83,14 +83,11 @@ for penalty_coefficient in pc_list:
 
     mortar_nels = [2*num_el1]
     problem.create_mortar_meshes(mortar_nels)
-    problem.create_mortar_funcs('CG',1)
-    problem.create_mortar_funcs_derivative('CG',1)
 
     mapping_list = [[0,1],]
     physical_locations = [np.array([[0.,0.,0.],[0.,20.,0.]]),]
-
-    mortar_mesh_locations = [[]]*problem.num_interfaces
-    for i in range(problem.num_interfaces):
+    mortar_mesh_locations = [[]]*problem.num_intersections
+    for i in range(problem.num_intersections):
         for j in range(2):
             mortar_mesh_locations[i] += [interface_parametric_location(
                                          splines[mapping_list[i][j]], 
@@ -103,12 +100,7 @@ for penalty_coefficient in pc_list:
     source_terms = []
     residuals = []
     # PointSource will be applied mpisize times in parallel
-    tip_load = -10./MPI.size(COMM)
     f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-    ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
-    ps_list = [ps0,]
-    ps_ind = [0,]
-
     for i in range(len(splines)):
         source_terms += [inner(f0, problem.splines[i].rationalize(\
             problem.spline_test_funcs[i]))*problem.splines[i].dx,]
@@ -116,9 +108,15 @@ for penalty_coefficient in pc_list:
                                    problem.spline_funcs[i], 
                                    problem.spline_test_funcs[i], 
                                    E, nu, h_th, source_terms[i])]
+    problem.set_residuals(residuals)
 
-    problem.set_residuals(residuals, point_sources=ps_list, 
-                          point_source_inds=ps_ind)
+    tip_load = -10./MPI.size(COMM)
+    ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
+    ps_list = [ps0,]
+    ps_ind = [0,]
+    problem.set_point_sources(point_sources=ps_list, 
+                              point_source_inds=ps_ind)
+    
     problem.solve_linear_nonmatching_problem()
 
     ########## Measure displacement and angles of intertest ##########

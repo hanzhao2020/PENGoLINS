@@ -82,8 +82,6 @@ for i in range(num_surfs):
 # Create non-matching problem
 problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
 problem.create_mortar_meshes(preprocessor.mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 
 if mpirank == 0:
     print("Setting up mortar meshes...")
@@ -95,7 +93,7 @@ source_terms = []
 residuals = []
 pressure = Constant(1e3)
 
-# Normal pressure
+# Follower pressure
 for i in range(len(splines)):
     A0,A1,A2,dA2,A,B = surfaceGeometry(problem.splines[i], 
                                        problem.splines[i].F)

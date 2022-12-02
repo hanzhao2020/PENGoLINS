@@ -95,8 +95,6 @@ for pc_iter in range(len(pc_list)):
             mortar_mesh_locations += [h_mortar_locs,]
 
     problem.create_mortar_meshes(mortar_nels)
-    problem.create_mortar_funcs('CG',1)
-    problem.create_mortar_funcs_derivative('CG',1)
     problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                                 penalty_coefficient)
     source_terms = []

@@ -43,7 +43,7 @@ h_th = Constant(0.03)
 L = 2.
 
 pressure = Constant(1e2)
-toatl_time = .1
+toatl_time = 2
 n_steps = 100
 delta_t = toatl_time/n_steps
 stepper = LoadStepper(delta_t)
@@ -122,8 +122,6 @@ for i in range(num_mortar_mesh):
         mortar_mesh_locations += [h_mortar_locs,]
 
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 
@@ -141,7 +139,7 @@ for i in range(num_srfs):
                                        problem.splines[i].F)
     a0,a1,a2,da2,a,b = surfaceGeometry(problem.splines[i], 
                        problem.splines[i].F+problem.spline_funcs[i])
-    source_terms += [-(pressure*stepper.t)*sqrt(det(a)/det(A))\
+    source_terms += [(pressure*stepper.t)*sqrt(det(a)/det(A))\
                  *inner(a2,problem.splines[i].rationalize(
                   problem.spline_test_funcs[i]))*problem.splines[i].dx,]
     residuals += [hyperelastic_residual(problem.splines[i], 
@@ -188,7 +186,7 @@ for time_iter in range(n_steps):
     stepper.advance()
 
     xi = np.array([1.,1.])
-    QoI = -problem.spline_funcs[0](xi)[2]\
+    QoI = problem.spline_funcs[0](xi)[2]\
          /splines[0].cpFuncs[3](xi)
     QoI_list += [QoI,]
 

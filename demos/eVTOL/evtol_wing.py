@@ -1,8 +1,6 @@
 """
 The required eVTOL geometry can be downloaded from:
-
     https://drive.google.com/file/d/1xpY8ACQlodmwkUZsiEQvTZPcUu-uezgi/view?usp=sharing
-
 and extracted using the command "tar -xvzf eVTOL_wing_structure.tgz".
 """
 from PENGoLINS.occ_preprocessing import *
@@ -64,9 +62,18 @@ if mpirank == 0:
     print("Number of surfaces:", num_surfs)
 
 num_pts_eval = [16]*num_surfs
-u_insert_list = [8]*num_surfs
-v_insert_list = [8]*num_surfs
 ref_level_list = [1]*num_surfs
+
+# Meshes that are close to the results in the paper
+u_insert_list = [16, 15, 14, 13, 1, 1] \
+              + [16, 17, 18] + [4]*12  
+v_insert_list = [8, 7, 6, 5, 12, 11] \
+              + [1]*3 + [1]*12
+# # Meshes with equal numbers of knot insertion, this scheme
+# # has slightly smaller QoI due to skinny elements at wingtip
+# u_insert_list = [8]*num_surfs
+# v_insert_list = [8]*num_surfs
+
 # For the two small NURBS patches at the wingtip, we control the
 # refinement level less than 3 to prevent over refinement.
 for i in [4,5]:
@@ -81,16 +88,6 @@ for i in range(len(u_insert_list)):
     u_num_insert += [ref_level_list[i]*u_insert_list[i]]
     v_num_insert += [ref_level_list[i]*v_insert_list[i]]
 
-# # Meshes that are close to the results in the paper
-# u_insert_list = [16, 15, 14, 13, 1, 1] \
-#               + [16, 17, 18] + [4]*12  
-# v_insert_list = [8, 7, 6, 5, 12, 11] \
-#               + [1]*3 + [1]*12
-# mesh_ref = 1
-
-# u_num_insert = [i*mesh_ref for i in u_insert_list]
-# v_num_insert = [i*mesh_ref for i in v_insert_list]
-
 # Geometry preprocessing and surface-surface intersections computation
 preprocessor = OCCPreprocessing(wing_surfaces, reparametrize=True, 
                                 refine=True)
@@ -100,8 +97,15 @@ preprocessor.reparametrize_BSpline_surfaces(num_pts_eval, num_pts_eval,
                                             rtol=1e-4)
 preprocessor.refine_BSpline_surfaces(p, p, u_num_insert, v_num_insert, 
                                      correct_element_shape=True)
-print("Computing intersections...")
-preprocessor.compute_intersections(mortar_refine=2)
+
+if mpirank == 0:
+    print("Computing intersections...")
+int_data_filename = "eVTOL_wing_int_data.npz"
+if os.path.isfile(int_data_filename):
+    preprocessor.load_intersections_data(int_data_filename)
+else:
+    preprocessor.compute_intersections(mortar_refine=2)
+    preprocessor.save_intersections_data(int_data_filename)
 
 if mpirank == 0:
     print("Total DoFs:", preprocessor.total_DoFs)
@@ -132,8 +136,6 @@ for i in range(num_surfs):
 # Create non-matching problem
 problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
 problem.create_mortar_meshes(preprocessor.mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 
 if mpirank == 0:
     print("Setting up mortar meshes...")
@@ -143,11 +145,7 @@ problem.mortar_meshes_setup(preprocessor.mapping_list,
                             penalty_coefficient)
 
 # Define magnitude of load
-weight = 3000 # Take-off weight, kg
-wing_vol = 0
-for i in range(num_surfs):
-    wing_vol += assemble(h_th*Constant(1.)*splines[i].dx)
-load = Constant(weight/2/wing_vol)  # N/m^3
+load = Constant(40254) # The load should be in the unit of N/m^2
 f1 = as_vector([Constant(0.0), Constant(0.0), load])
 
 # Distributed downward load

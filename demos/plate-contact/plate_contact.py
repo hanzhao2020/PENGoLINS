@@ -149,8 +149,6 @@ for i in range(num_mortar_mesh):
     mortar_mesh_locations += [v_mortar_locs,]
 
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 
@@ -185,6 +183,26 @@ for i in range(problem.num_splines):
         time_integrator_list[i].xdot_old.interpolate(
             Expression(("0.0","0.0","0.0"),degree=1))
 
+source_terms = []
+res_list = []
+dMass_list = []
+residuals = []
+load_mag = 1e3
+f_list = [f, f, f0, f0, f0, f0]
+for i in range(problem.num_splines):
+    # # SVK model
+    source_terms += [inner(f_list[i], problem.splines[i].rationalize(\
+        problem.spline_test_funcs[i]))*problem.splines[i].dx,]
+    res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
+                  *SVK_residual(problem.splines[i], 
+                                problem.spline_funcs[i], 
+                                problem.spline_test_funcs[i], 
+                                E, nu, h_th, source_terms[i]),]
+    dMass_list += [dens*h_th*inner(yddot_alpha_list[i], 
+        problem.spline_test_funcs[i])*problem.splines[i].dx,]
+    residuals += [res_list[i]+dMass_list[i]]
+problem.set_residuals(residuals)
+
 total_steps = 500
 memory_profile = []
 for time_iter in range(total_steps):
@@ -204,25 +222,7 @@ for time_iter in range(total_steps):
                     problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
-    source_terms = []
-    res_list = []
-    dMass_list = []
-    residuals = []
-    load_mag = 1e3
-    f_list = [f, f, f0, f0, f0, f0]
-    for i in range(problem.num_splines):
-        # # SVK model
-        source_terms += [inner(f_list[i], problem.splines[i].rationalize(\
-            problem.spline_test_funcs[i]))*problem.splines[i].dx,]
-        res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
-                      *SVK_residual(problem.splines[i], 
-                                    problem.spline_funcs[i], 
-                                    problem.spline_test_funcs[i], 
-                                    E, nu, h_th, source_terms[i]),]
-        dMass_list += [dens*h_th*inner(yddot_alpha_list[i], 
-            problem.spline_test_funcs[i])*problem.splines[i].dx,]
-        residuals += [res_list[i]+dMass_list[i]]
-    problem.set_residuals(residuals)    
+
     problem.solve_nonlinear_nonmatching_problem(rtol=1e-3, max_it=100,
                                                 zero_mortar_funcs=False)
     for i in range(problem.num_splines):

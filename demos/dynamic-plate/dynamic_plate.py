@@ -117,8 +117,6 @@ for i in range(num_mortar_mesh):
         mortar_mesh_locations += [h_mortar_locs,]
 
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 
@@ -149,7 +147,31 @@ for i in range(problem.num_splines):
     time_integrator_list[i].xdot_old.interpolate(
                             Expression(("0.0","0.0","2.0"),degree=1))
 
-total_steps = 3
+source_terms = []
+res_list = []
+dMass_list = []
+residuals = []
+load_mag = 1e3
+for i in range(problem.num_splines):
+    # SVK model
+    # X = problem.splines[i].spatialCoordinates()
+    # load = load_mag*sin(X[0]*pi/L)*sin(X[1]*pi/L)  # sin load
+    load = Constant(load_mag)
+    f = as_vector([Constant(0.), Constant(0.), load])
+    source_terms += [inner(f, problem.splines[i].rationalize(\
+        problem.spline_test_funcs[i]))*problem.splines[i].dx,]
+    res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
+                  *SVK_residual(problem.splines[i], 
+                                problem.spline_funcs[i], 
+                                problem.spline_test_funcs[i], 
+                                E, nu, h_th, source_terms[i]),]
+    dMass_list += [dens*h_th*inner(yddot_alpha_list[i], 
+        problem.spline_test_funcs[i])*problem.splines[i].dx,]
+    residuals += [res_list[i]+dMass_list[i]]
+
+problem.set_residuals(residuals)
+
+total_steps = 100
 
 for time_iter in range(total_steps):
     print("--- Step:", time_iter, ", time:", time_integrator_list[i].t, "---")
@@ -168,30 +190,6 @@ for time_iter in range(total_steps):
                     problem.splines[i].cpFuncs[3].rename("F"+str(i)+"_3",
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
-
-    source_terms = []
-    res_list = []
-    dMass_list = []
-    residuals = []
-    load_mag = 1e3
-    for i in range(problem.num_splines):
-        # SVK model
-        # X = problem.splines[i].spatialCoordinates()
-        # load = load_mag*sin(X[0]*pi/L)*sin(X[1]*pi/L)  # sin load
-        load = Constant(load_mag)
-        f = as_vector([Constant(0.), Constant(0.), load])
-        source_terms += [inner(f, problem.splines[i].rationalize(\
-            problem.spline_test_funcs[i]))*problem.splines[i].dx,]
-        res_list += [Constant(1./time_integrator_list[i].ALPHA_F)\
-                      *SVK_residual(problem.splines[i], 
-                                    problem.spline_funcs[i], 
-                                    problem.spline_test_funcs[i], 
-                                    E, nu, h_th, source_terms[i]),]
-        dMass_list += [dens*h_th*inner(yddot_alpha_list[i], 
-            problem.spline_test_funcs[i])*problem.splines[i].dx,]
-        residuals += [res_list[i]+dMass_list[i]]
-
-    problem.set_residuals(residuals)
 
     print("Solving nonlinear non-matching problem...")
     problem.solve_nonlinear_nonmatching_problem(rtol=1e-3, max_it=100,

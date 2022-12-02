@@ -81,9 +81,6 @@ for i in range(num_mortar_mesh):
     mortar_mesh_locations += [v_mortar_locs,]
 
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
-
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 
@@ -99,6 +96,27 @@ spline_boundaries1 = MeshFunction("size_t",
 spline_boundaries1.set_all(0)
 left.mark(spline_boundaries1, 1)
 problem.splines[load_srf_ind].ds.setMarkers(markers=spline_boundaries1)
+
+f = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+source_terms = []
+for i in range(len(splines)):
+    source_terms += [inner(f0, problem.splines[i].rationalize(
+    problem.spline_test_funcs[i]))*problem.splines[i].dx]
+
+source_terms[load_srf_ind] += inner(f, 
+    problem.splines[load_srf_ind].rationalize(
+    problem.spline_test_funcs[load_srf_ind]))\
+    *problem.splines[load_srf_ind].ds(1)
+
+residuals = []
+for i in range(problem.num_splines):
+    residuals += [SVK_residual(problem.splines[i], 
+                               problem.spline_funcs[i], 
+                               problem.spline_test_funcs[i], 
+                               E, nu, h_th, source_terms[i]),]
+
+problem.set_residuals(residuals)
 
 SAVE_PATH = "./"
 u_file_names = []
@@ -145,28 +163,7 @@ for nonlinear_test_iter in range(load_step):
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
 
-    f = as_vector([Constant(0.), Constant(0.), 
-        line_force_ratio[nonlinear_test_iter]*line_force])
-    f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-    source_terms = []
-    for i in range(len(splines)):
-        source_terms += [inner(f0, problem.splines[i].rationalize(
-        problem.spline_test_funcs[i]))*problem.splines[i].dx]
-
-    source_terms[load_srf_ind] += inner(f, 
-        problem.splines[load_srf_ind].rationalize(
-        problem.spline_test_funcs[load_srf_ind]))\
-        *problem.splines[load_srf_ind].ds(1)
-
-    residuals = []
-    for i in range(problem.num_splines):
-        residuals += [SVK_residual(problem.splines[i], 
-                                   problem.spline_funcs[i], 
-                                   problem.spline_test_funcs[i], 
-                                   E, nu, h_th, source_terms[i]),]
-
-    problem.set_residuals(residuals)
-    
+    f[2].assign(line_force_ratio[nonlinear_test_iter]*line_force)
     print("Solving nonlinear non-matching system...")
     soln = problem.solve_nonlinear_nonmatching_problem(rtol=1e-2, max_it=100)
 
