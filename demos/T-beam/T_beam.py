@@ -99,7 +99,6 @@ for penalty_coefficient in pc_list:
 
     source_terms = []
     residuals = []
-    # PointSource will be applied mpisize times in parallel
     f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
     for i in range(len(splines)):
         source_terms += [inner(f0, problem.splines[i].rationalize(\
@@ -109,7 +108,8 @@ for penalty_coefficient in pc_list:
                                    problem.spline_test_funcs[i], 
                                    E, nu, h_th, source_terms[i])]
     problem.set_residuals(residuals)
-
+    
+    # PointSource will be applied mpisize times in parallel
     tip_load = -10./MPI.size(COMM)
     ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
     ps_list = [ps0,]
