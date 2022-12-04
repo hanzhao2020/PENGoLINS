@@ -99,7 +99,12 @@ preprocessor.refine_BSpline_surfaces(p, p, u_num_insert, v_num_insert,
 ```
 And the last but important step in preprocessing is to compute the surface-surface intersections and obtain related data. This can be done using method ``compute_intersections`` in ``preprocessor``. We set ``mortar_refine`` equals 2 so that the default numbers of elements for mortar meshes will be doubled, which will improve the stress distribution quality near the intersection.
 ```python
-preprocessor.compute_intersections(mortar_refine=2)
+int_data_filename = "eVTOL_wing_int_data.npz"
+if os.path.isfile(int_data_filename):
+    preprocessor.load_intersections_data(int_data_filename)
+else:
+    preprocessor.compute_intersections(mortar_refine=2)
+    preprocessor.save_intersections_data(int_data_filename)
 ```
 We can print out necessary information such as total DoFs and number of intersections:
 ```python
@@ -174,23 +179,14 @@ Similar to the procedures in benchmark problems, we can initialize the instance 
 ```python
 problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
 problem.create_mortar_meshes(preprocessor.mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(preprocessor.mapping_list, 
                             preprocessor.intersections_para_coords, 
                             penalty_coefficient)
 ```
-Considering the length of the wing, we assume the take-off weight for eCRM-002 is 3000 kg. Then the magnitude of the upward distributed load is determined by dividing half of the weight by wing volume.
+Considering a distributed upward load with value 40254 N/m^2 to simulation the working condition of an aircraft wing, then we can formulate the PDE residuals.
 ```python
-weight = 3000 # Take-off weight, kg
-wing_vol = 0
-for i in range(num_surfs):
-    wing_vol += assemble(h_th*Constant(1.)*splines[i].dx)
-load = Constant(weight/2/wing_vol)  # N/m^3
+load = Constant(40254)
 f1 = as_vector([Constant(0.0), Constant(0.0), load])
-```
-Using the distributed load to form source terms and, therefore, PDE residuals of St. Venant Kirchhoff constitutive model.
-```python
 loads = [f1]*num_surfs
 source_terms = []
 residuals = []

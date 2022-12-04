@@ -57,15 +57,13 @@ In order to analyze imported geometry using the open-source IGA Python library, 
 # shell thickness: h_th, Poisson's ratio: nu.
 problem = NonMatchingCoupling(splines, E, h_th, nu)
 ```
+Other optional arguments for ``NonMatchingCoupling`` class include: ``int_V_family`` and ``int_V_degree`` are the element family and degree of function spaces for mortar meshes' displacements and their derivatives, default values are ``'CG'`` and ``1`` respectively; ``int_dx_metadata`` is the integration method for the mortar meshes integration measure, by default, PENGoLINS uses vertex quadrature with degree 0 to emulate the "point cloud" mesh; ``contact`` is an instance of ShNAPr.contact.ShellContactContext to model the nonlocal contact, default is ``None`` and contact is not considered.
+
 Next, we want to create the mortar meshes, solution functions and their derivatives on the mortar meshes to integrate the differences of displacement and rotation between spline patches.
 ```python
 # Create mortar meshes by giving a list contains number of elements for 
 # each mortar mesh.
 problem.create_mortar_meshes(preprocessor.mortar_nels)
-# Create Dolfin functions represent solutions and their derivatives
-# with finite element family ``CG1``.
-problem.create_mortar_funcs('CG', 1)
-problem.create_mortar_funcs_derivative('CG', 1)
 ```
 Once mortar meshes and their functions are available, the transfer matrices between function spaces of spline patches and mortar meshes can be created, as well as the penalty parameters based on the information from ``preprocessor``. These routines are encapsulated into the following method:
 ```python

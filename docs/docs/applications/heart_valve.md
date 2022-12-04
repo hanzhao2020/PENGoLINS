@@ -54,19 +54,24 @@ def zero_bc(spline_generator, direction=0, side=0, n_layers=2):
 
 def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=2, 
                            zero_bcs=None, direction=0, side=0,
-                           zero_domain=None, fields=[0,1,2]):
+                           zero_domain=None, fields=[0,1,2], index=0):
     """
     Convert OCC Geom BSplineSurface to tIGAr ExtractedSpline.
     """
     quad_deg = surface.UDegree()*quad_deg_const
-    spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
-    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
-    if zero_bcs is not None:
-        zero_bcs(spline_generator, direction, side)
-    if zero_domain is not None:
-        for i in fields:
-            spline_generator.addZeroDofsByLocation(zero_domain(), i)
-    spline = ExtractedSpline(spline_generator, quad_deg)
+    DIR = SAVE_PATH+"spline_data/extraction_"+str(index)+"_init"
+    if path.exists(DIR):
+        spline = ExtractedSpline(DIR, quad_deg)
+    else:
+        spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
+        spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
+        if zero_bcs is not None:
+            zero_bcs(spline_generator, direction, side)
+        if zero_domain is not None:
+            for i in fields:
+                spline_generator.addZeroDofsByLocation(zero_domain(), i)
+        spline_generator.writeExtraction(DIR)
+        spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 ```
 Create tIGAr extracted spline instances.
@@ -77,15 +82,14 @@ bcs = [[0,0], [0,1], [None, None], [1,1]]*3
 for i in range(num_surfs):
     splines += [OCCBSpline2tIGArSpline(preprocessor.BSpline_surfs_refine[i], 
                                        zero_bcs=bcs_funcs[i], 
-                                       direction=bcs[i][0], side=bcs[i][1]),]
+                                       direction=bcs[i][0], side=bcs[i][1],
+                                       index=i),]
 ```
 With the information from the preprocessor and tIGAr extracted splines, we are ready to set up the non-matching problem.
 ```python
 nonmatching_problem = NonMatchingCoupling(splines, E, h_th, nu, 
                                           comm=selfcomm)
 nonmatching_problem.create_mortar_meshes(preprocessor.mortar_nels)
-nonmatching_problem.create_mortar_funcs('CG',1)
-nonmatching_problem.create_mortar_funcs_derivative('CG',1)
 nonmatching_problem.mortar_meshes_setup(preprocessor.mapping_list, 
                             preprocessor.intersections_para_coords, 
                             penalty_coefficient)
@@ -184,7 +188,7 @@ up_t = time_int_f.xdot_alpha()
 u_t = uPart(up_t)
 cutFunc = Function(Vscalar)
 stabEps = 1e-3
-res_f = interiorResidual(u_alpha,p,v,q,rho,mu,mesh,u_t=u_t,Dt=delta_t,dx=dx_f,
+res_f = interiorResidual(u_alpha,p,v,q,rho,mu,mesh,v_t=u_t,Dt=delta_t,dy=dx_f,
                          stabScale=stabScale(cutFunc,stabEps))
 n = FacetNormal(mesh)
 res_f += stableNeumannBC(inflowTraction,rho,u_alpha,v,n,

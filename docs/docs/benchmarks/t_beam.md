@@ -93,8 +93,6 @@ Then, we continue to create mortar meshes and unknowns on them.
 # Only one intersection in this T-beam geometry
 mortar_nels = [2*num_el1]
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 ```
 Setting ``mapping_list`` and location of intersection in the parametric space. In this demo, the exact intersection locations in the physical space can be easily found, which is the straight line between points (0,0,0) and (0,20,0). For demonstration, we use Newton's method and the exact physical locations of intersection to compute the parametric locations of mortar mesh.
 ```python
@@ -102,8 +100,8 @@ Setting ``mapping_list`` and location of intersection in the parametric space. I
 mapping_list = [[0, 1],]
 # Compute mortar mesh's parametric locations
 physical_locations = [np.array([[0.,0.,0.],[0.,20.,0.]]),]
-mortar_mesh_locations = [[]]*problem.num_interfaces
-for i in range(problem.num_interfaces):
+mortar_mesh_locations = [[]]*problem.num_intersections
+for i in range(problem.num_intersections):
     for j in range(2):
         mortar_mesh_locations[i] += [interface_parametric_location(
                                      splines[mapping_list[i][j]], 
@@ -118,10 +116,6 @@ Next, we construct the point load and set PDE residuals to the non-matching prob
 source_terms = []
 residuals = []
 f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
-ps_list = [ps0,]  # List of point source instances 
-ps_ind = [0,]  # List of indices for point sources
-
 for i in range(len(splines)):
     source_terms += [inner(f0, problem.splines[i].rationalize(\
         problem.spline_test_funcs[i]))*problem.splines[i].dx,]
@@ -129,9 +123,16 @@ for i in range(len(splines)):
                                problem.spline_funcs[i], 
                                problem.spline_test_funcs[i], 
                                E, nu, h_th, source_terms[i])]
-# Pass list of point sources and corresponding indices to ``problem``.
-problem.set_residuals(residuals, point_sources=ps_list, 
-                      point_source_inds=ps_ind)
+# Pass KL shell residuals to ``problem``.
+problem.set_residuals(residuals)
+
+# Set point loads and corresponding indices to non-matching problem.
+tip_load = -10./MPI.size(COMM)
+ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
+ps_list = [ps0,]  # List of point source instances 
+ps_ind = [0,]  # List of indices for point sources
+problem.set_point_sources(point_sources=ps_list, 
+                          point_source_inds=ps_ind)
 ```
 Assemble the linear non-matching system and solve it.
 ```python

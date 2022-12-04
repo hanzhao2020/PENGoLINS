@@ -150,8 +150,6 @@ for j in range(num_interfaces):
 Create mortar meshes and set up coupling information. In practical applications, the required arguments ``mortar_nels``, ``mapping_list``, and ``mortar_mesh_locations`` would be generated automatically by the PENGoLINS preprocessor.
 ```python
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations, 
                             penalty_coefficient)
 ```

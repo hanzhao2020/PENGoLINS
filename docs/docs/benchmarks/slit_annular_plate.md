@@ -103,8 +103,6 @@ for i in range(num_mortar_mesh):
 We can then pass the above information to ``problem`` to finish the setup of mortar meshes.
 ```python
 problem.create_mortar_meshes(mortar_nels)
-problem.create_mortar_funcs('CG',1)
-problem.create_mortar_funcs_derivative('CG',1)
 problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                             penalty_coefficient)
 ```
@@ -123,6 +121,30 @@ spline_boundaries1.set_all(0)
 left.mark(spline_boundaries1, 1)
 problem.splines[load_srf_ind].ds.setMarkers(markers=spline_boundaries1)
 ```
+Then formulate Kirchhoff--Love shell PDE residuals and pass them to ``problem``.
+```python
+f = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
+source_terms = []
+for i in range(len(splines)):
+    source_terms += [inner(f0, problem.splines[i].rationalize(
+    problem.spline_test_funcs[i]))*problem.splines[i].dx]
+
+source_terms[load_srf_ind] += inner(f, 
+    problem.splines[load_srf_ind].rationalize(
+    problem.spline_test_funcs[load_srf_ind]))\
+    *problem.splines[load_srf_ind].ds(1)
+
+residuals = []
+for i in range(problem.num_splines):
+    residuals += [SVK_residual(problem.splines[i], 
+                               problem.spline_funcs[i], 
+                               problem.spline_test_funcs[i], 
+                               E, nu, h_th, source_terms[i]),]
+
+problem.set_residuals(residuals)
+```
+
 We also create the empty pvd files to store solutions before the stepping load.
 ```python
 SAVE_PATH = "./"
@@ -171,29 +193,9 @@ for nonlinear_test_iter in range(load_step):
                                                          "F"+str(i)+"_3")
                     F_files[i][3] << problem.splines[i].cpFuncs[3]
 ```
-Continue the loop, the PDE residuals of St. Venant--Kirchhoff constitutive model are formulated and passed to ``problem``.
+Update the load values and continue the loop.
 ```python
-    f = as_vector([Constant(0.), Constant(0.), 
-        line_force_ratio[nonlinear_test_iter]*line_force])
-    f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-    source_terms = []
-    for i in range(len(splines)):
-        source_terms += [inner(f0, problem.splines[i].rationalize(
-        problem.spline_test_funcs[i]))*problem.splines[i].dx]
-    # Add source term of line force to the first spline
-    source_terms[load_srf_ind] += inner(f, 
-        problem.splines[load_srf_ind].rationalize(
-        problem.spline_test_funcs[load_srf_ind]))\
-        *problem.splines[load_srf_ind].ds(1)
-
-    residuals = []
-    for i in range(problem.num_splines):
-        residuals += [SVK_residual(problem.splines[i], 
-                                   problem.spline_funcs[i], 
-                                   problem.spline_test_funcs[i], 
-                                   E, nu, h_th, source_terms[i]),]
-
-    problem.set_residuals(residuals)
+    f[2].assign(line_force_ratio[nonlinear_test_iter]*line_force)
 ```
 Solve the non-matching system as a nonlinear problem with relative a tolerance of 0.01 and maximum of 100 Newton's iterations.
 ```python

@@ -20,7 +20,7 @@ To install PENGoLINS, a list of dependencies have to be installed beforehand.
 
 5. Leveraging geometry kernel requires [pythonOCC](https://github.com/tpaviot/pythonocc-core), whose installation instruction can be found [here](https://github.com/tpaviot/pythonocc-core/blob/master/INSTALL.md).
 
-6. Geometry in benchmark problems are created using [igakit](https://bitbucket.org/dalcinl/igakit/src/master/), which can be installed using the following command
+6. Geometry in benchmark problems are created using [igakit](https://github.com/dalcinl/igakit), which can be installed using the following command
 ```bash
 pip3 install https://github.com/dalcinl/igakit/archive/refs/heads/master.zip
 ```
