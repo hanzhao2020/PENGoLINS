@@ -14,12 +14,17 @@ from ShNAPr.contact import *
 from PENGoLINS.occ_preprocessing import *
 from PENGoLINS.nonmatching_coupling import *
 
+from datetime import datetime
+
+start_current_time = datetime.now().strftime("%D %H:%M:%S")
+if mpirank == 0:
+        print("Start current time: ", start_current_time)
 parameters["std_out_all_processes"] = False
 
 SAVE_PATH = "./results/"
 if not path.exists(SAVE_PATH):
         os.mkdir(SAVE_PATH)
-RESTART_PATH = SAVE_PATH+"restarts/"
+RESTART_PATH = SAVE_PATH+"restarts"
 viz = True
 out_skip = 10
 
@@ -35,25 +40,30 @@ def zero_bc(spline_generator, direction=0, side=0, n_layers=2):
 
 def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=2, 
                            zero_bcs=None, direction=0, side=0,
-                           zero_domain=None, fields=[0,1,2]):
+                           zero_domain=None, fields=[0,1,2], index=0):
     """
     Convert OCC Geom BSplineSurface to tIGAr ExtractedSpline.
     """
     quad_deg = surface.UDegree()*quad_deg_const
-    spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
-    spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
-    if zero_bcs is not None:
-        zero_bcs(spline_generator, direction, side)
-    if zero_domain is not None:
-        for i in fields:
-            spline_generator.addZeroDofsByLocation(zero_domain(), i)
-    spline = ExtractedSpline(spline_generator, quad_deg)
+    DIR = SAVE_PATH+"spline_data/extraction_"+str(index)+"_init"
+    if path.exists(DIR):
+        spline = ExtractedSpline(DIR, quad_deg)
+    else:
+        spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
+        spline_generator = EqualOrderSpline(selfcomm, num_field, spline_mesh)
+        if zero_bcs is not None:
+            zero_bcs(spline_generator, direction, side)
+        if zero_domain is not None:
+            for i in fields:
+                spline_generator.addZeroDofsByLocation(zero_domain(), i)
+        spline_generator.writeExtraction(DIR)
+        spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
 # Check if restarting
-restarting = path.exists(RESTART_PATH+"step.dat")
+restarting = path.exists(RESTART_PATH+"/step.dat")
 if restarting:
-    step_file = open(RESTART_PATH+"step.dat", "r")
+    step_file = open(RESTART_PATH+"/step.dat", "r")
     fs = step_file.read()
     step_file.close()
     tokens = fs.split()
@@ -71,7 +81,7 @@ E = Constant(1e7)
 nu = Constant(0.4)
 p=3  # B-spline degree
 penalty_coefficient = 1.0e3
-mortar_refine = 3
+mortar_refine = 2
 
 if mpirank == 0:
     print("Importing geometry...")
@@ -92,13 +102,13 @@ preprocessor.refine_BSpline_surfaces(p, p,
 if mpirank == 0:
     print("Computing intersections...")
 intersections_data_filename = "intersections_data.npz"
-if path.exists(RESTART_PATH+intersections_data_filename):
+if path.exists("./"+intersections_data_filename):
     preprocessor.load_intersections_data(intersections_data_filename,
-                                         data_path=RESTART_PATH)
+                                         data_path="./")
 else:
     preprocessor.compute_intersections(mortar_refine=mortar_refine)
     preprocessor.save_intersections_data(intersections_data_filename,
-                                         data_path=RESTART_PATH) 
+                                         data_path="./") 
 num_intersections = preprocessor.num_intersections_all
 
 if mpirank == 0:
@@ -114,15 +124,13 @@ bcs = [[0,0], [0,1], [None, None], [1,1]]*3
 for i in range(num_surfs):
     splines += [OCCBSpline2tIGArSpline(preprocessor.BSpline_surfs_refine[i], 
                                        zero_bcs=bcs_funcs[i], 
-                                       direction=bcs[i][0], side=bcs[i][1]),]
+                                       direction=bcs[i][0], side=bcs[i][1],
+                                       index=i),]
 
 # Initialize non-matching problem
 nonmatching_problem = NonMatchingCoupling(splines, E, h_th, nu, 
                                           comm=splines[0].comm)
 nonmatching_problem.create_mortar_meshes(preprocessor.mortar_nels)
-nonmatching_problem.create_mortar_funcs('CG',1)
-nonmatching_problem.create_mortar_funcs_derivative('CG',1)
-
 nonmatching_problem.mortar_meshes_setup(preprocessor.mapping_list, 
                             preprocessor.intersections_para_coords, 
                             penalty_coefficient)
@@ -225,7 +233,7 @@ up_t = time_int_f.xdot_alpha()
 u_t = uPart(up_t)
 cutFunc = Function(Vscalar)
 stabEps = 1e-3
-res_f = interiorResidual(u_alpha,p,v,q,rho,mu,mesh,u_t=u_t,Dt=delta_t,dx=dx_f,
+res_f = interiorResidual(u_alpha,p,v,q,rho,mu,mesh,v_t=u_t,Dt=delta_t,dy=dx_f,
                          stabScale=stabScale(cutFunc,stabEps))
 n = FacetNormal(mesh)
 res_f += stableNeumannBC(inflowTraction,rho,u_alpha,v,n,
@@ -355,13 +363,12 @@ for time_step in range(start_step, n_steps):
         fsi_problem.writeRestarts(RESTART_PATH, time_step)
 
         if mpirank == 0:
-            step_file = open(RESTART_PATH+"step.dat", "w")
+            step_file = open(RESTART_PATH+"/step.dat", "w")
             step_file.write(str(time_step)+" "\
                             +str(time_int_f.t-float(delta_t)))
             step_file.close()
 
         if viz:
-            # Save initial zero solution
             if time_step%out_skip == 0:
                 if mpirank == 0:
                     # Structure
@@ -398,3 +405,7 @@ for time_step in range(start_step, n_steps):
         outFile = open(SAVE_PATH+output_file_name,mode)
         outFile.write(str(time_int_f.t)+" "+str(flow_rate)+"\n")
         outFile.close()
+
+end_current_time = datetime.now().strftime("%D %H:%M:%S")
+if mpirank == 0:
+        print("End current time: ", end_current_time)
