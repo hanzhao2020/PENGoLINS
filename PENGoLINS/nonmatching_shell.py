@@ -196,8 +196,7 @@ def project_normal_vector_onto_tangent_space(to_project, e0, e1):
     res = inner(to_project, e0)*e0 + inner(to_project, e1)*e1
     return res
 
-def penalty_displacement(alpha_d, u0m_hom, u1m_hom, 
-                         line_Jacobian=None, dx_m=None):
+def penalty_displacement_integrand(alpha_d, u0m_hom, u1m_hom):
     """
     Penalization of displacements on the non-matching 
     interface between two splines.
@@ -207,22 +206,17 @@ def penalty_displacement(alpha_d, u0m_hom, u1m_hom,
     alpha_d : ufl.algebra.Division
     u0m_hom : dolfin Function
     u1m_hom : dolfin Function
-    line_Jacobian : dolfin Function or None, optional
-    dx_m : ufl Measure
 
     Return
     ------
     W_pd : ufl Form
     """
-    if line_Jacobian is None:
-        line_Jacobian = Constant(1.)
-    if dx_m is None:
-        dx_m = dx
-    W_pd = 0.5*alpha_d*((u0m_hom-u1m_hom)**2)*line_Jacobian*dx_m
-    return W_pd
+    W_pd_int = 0.5*alpha_d*((u0m_hom-u1m_hom)**2)
+    return W_pd_int
 
-def penalty_rotation(mortar_mesh, alpha_r, dX0dxi, dx0dxi, dX1dxi, dx1dxi, 
-                     line_Jacobian=None, dx_m=None):
+def penalty_rotation_integrand(mortar_mesh, alpha_r, 
+                               dX0dxi, dx0dxi, dX1dxi, dx1dxi,
+                               proj_tan=True):
     """
     Penalization of rotation on the non-matching interface 
     between two splines.
@@ -235,19 +229,11 @@ def penalty_rotation(mortar_mesh, alpha_r, dX0dxi, dx0dxi, dX1dxi, dx1dxi,
     dx0dxi : dolfin ListTensor
     dX1dxi : dolfin ListTensor
     dx1dxi : dolfin ListTensor
-    line_Jacobian : dolfin Function or None, optional
-    dx_m : ufl Measure or None, optional
 
     Return
     ------
     W_pr : ufl Form
     """
-    # print("New penatly rotation")
-    if line_Jacobian is None:
-        line_Jacobian = Constant(1.)
-    if dx_m is None:
-        dx_m = dx
-
     # Orthonormal basis for patch 0
     a00, a01, a02 = interface_geometry(dx0dxi)
     A00, A01, A02 = interface_geometry(dX0dxi)
@@ -258,16 +244,24 @@ def penalty_rotation(mortar_mesh, alpha_r, dX0dxi, dx0dxi, dX1dxi, dx1dxi,
 
     xi = SpatialCoordinate(mortar_mesh)
     t = Jacobian(xi)
-    at0 = t[0,0]*a00 + t[1,0]*a01
-    At0 = t[0,0]*A00 + t[1,0]*A01
+    if proj_tan:
+        # lump mass projection of tangent vector
+        Vm = FunctionSpace(mortar_mesh, 'CG', 1)
+        t0 = lumped_project(t[0,0], Vm)
+        t1 = lumped_project(t[1,0], Vm)
+    else:
+        t0, t1 = t[0,0], t[1,0]
+
+    at0 = t0*a00 + t1*a01
+    At0 = t0*A00 + t1*A01
 
     an1 = cross(a02, at0)/sqrt(inner(at0, at0))
     An1 = cross(A02, At0)/sqrt(inner(At0, At0))
 
-    W_pr = 0.5*alpha_r*((inner(a02, a12) - inner(A02, A12))**2 
-         + (inner(an1, a12) - inner(An1, A12))**2)*line_Jacobian*dx_m
+    W_pr_int = 0.5*alpha_r*((inner(a02, a12) - inner(A02, A12))**2 
+             + (inner(an1, a12) - inner(An1, A12))**2)
 
-    return W_pr
+    return W_pr_int
 
 # def penalty_rotation_in_paper(alpha_r, dX1dxi, dx1dxi, dX2dxi, dx2dxi, 
 #                               line_Jacobian=None, dx_m=None):
@@ -357,7 +351,7 @@ def penalty_rotation(mortar_mesh, alpha_r, dX0dxi, dx0dxi, dX1dxi, dx1dxi,
 def penalty_energy(spline0, spline1, u0, u1, 
                    mortar_mesh, mortar_funcs, mortar_cpfuncs, 
                    A, A_control, alpha_d, alpha_r, 
-                   dx_m=None, metadata=None):
+                   dx_m=None, metadata=None, proj_tan=True):
     """
     Penalization of displacement and rotation of non-matching interface 
     between two extracted splines.
@@ -379,7 +373,9 @@ def penalty_energy(spline0, spline1, u0, u1,
     alpha_d : ufl.algebra.Division
     alpha_r : ufl.algebra.Division
     dx_m : ufl Measure or None
-    quadrature_degree : int, default is 2
+    metadata : dict, metadata for dolfin integration measure
+    proj_tan : bool, project mortar mesh's tangent vector 
+        onto a CG1 function space with lumped mass
 
     Returns
     -------
@@ -418,15 +414,15 @@ def penalty_energy(spline0, spline1, u0, u1,
         line_Jacobian = sqrt(tr(mortar_dXdxi[1]*mortar_dXdxi[1].T))
 
     # Penalty of displacement
-    W_pd = penalty_displacement(alpha_d, 
-                                mortar_funcs[0][0], mortar_funcs[1][0], 
-                                line_Jacobian, dx_m)
+    W_pd_int = penalty_displacement_integrand(alpha_d, mortar_funcs[0][0], 
+                                              mortar_funcs[1][0])
     # Penalty of rotation
-    W_pr = penalty_rotation(mortar_mesh, alpha_r, 
-                            mortar_dXdxi[0], mortar_dxdxi[0], 
-                            mortar_dXdxi[1], mortar_dxdxi[1], 
-                            line_Jacobian, dx_m)
-    W_p = W_pd + W_pr
+    W_pr_int = penalty_rotation_integrand(mortar_mesh, alpha_r, 
+                                          mortar_dXdxi[0], mortar_dxdxi[0], 
+                                          mortar_dXdxi[1], mortar_dxdxi[1],
+                                          proj_tan)
+
+    W_p = (W_pd_int + W_pr_int)*line_Jacobian*dx_m
     return W_p
 
 def SVK_residual(spline, u_hom, z_hom, E, nu, h, dWext):

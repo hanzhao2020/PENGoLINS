@@ -269,13 +269,13 @@ def FE2IGA(spline, u_FE, applyBCs=True):
         apply_bcs_vec(spline, u_IGA)
     return u_IGA
 
-def zero_petsc_vec(num_el, vec_type=None, comm=worldcomm):
+def zero_petsc_vec(vec_sizes, vec_type=None, comm=worldcomm):
     """
-    Create zero PETSc vector of size ``num_el``.
+    Create zero PETSc vector of size ``vec_sizes``.
 
     Parameters
     ----------
-    num_el : int
+    vec_sizes : int or list of ints with local and global sizes
     vec_type : str, optional, default is None
         For available types, see petsc4py.PETSc.Vec.Type.
     comm : MPI communicator
@@ -287,22 +287,25 @@ def zero_petsc_vec(num_el, vec_type=None, comm=worldcomm):
     v = PETSc.Vec(comm)
     v.create(comm=comm)
     if vec_type is None:
-        vec_type = 'mpi'
+        if mpisize == 1:
+            vec_type = 'seq'
+        else:
+            vec_type = 'mpi'
     v.setType(vec_type)
-    v.setSizes(num_el)
+    v.setSizes(vec_sizes)
     v.setUp()
     v.assemble()
     return v
 
-def zero_petsc_mat(row, col, mat_type=None, 
+def zero_petsc_mat(row_sizes, col_sizes, mat_type=None, 
                    PREALLOC=500, comm=worldcomm):
     """
-    Create zeros PETSc matrix with shape (``row``, ``col``).
+    Create zeros PETSc matrix with shape (``row_sizes``, ``col_sizes``).
 
     Parameters
     ----------
-    row : int
-    col : int
+    row_sizes : int or list of ints with local and global sizes
+    col_sizes : int or list of ints with local and global sizes
     mat_type : str, optional, default is None
         For available types, see petsc4py.PETSc.Mat.Type
     comm : MPI communicator
@@ -314,9 +317,12 @@ def zero_petsc_mat(row, col, mat_type=None,
     A = PETSc.Mat(comm)
     A.create(comm=comm)
     if mat_type is None:
-        mat_type = 'mpiaij'    
+        if mpisize == 1:
+            mat_type = 'seqaij'
+        else:
+            mat_type = 'mpiaij'
     A.setType(mat_type)
-    A.setSizes([row, col])
+    A.setSizes([row_sizes, col_sizes])
     A.setPreallocationNNZ([PREALLOC, PREALLOC])
     A.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, False)
     A.setUp()
@@ -1298,6 +1304,31 @@ def eval_func(mesh, f, xi, allreduce=True):
               /pt_in_mesh_allgather.count(True)
 
     return res
+
+def lumped_project(to_project, V):
+    """
+    Project a ufl expression to function space with lumped mass
+    
+    Parameters
+    ----------
+    to_project : ufl expression to project
+    V : dolfin FunctionSpace
+
+    Returns
+    -------
+    u : dolfin Function
+    """
+    u = Function(V)
+    v = TestFunction(V)
+    if len(u.ufl_shape) > 0:
+        lhs = assemble(inner(Constant((1.,)*u.ufl_shape[0]), v)*dx)        
+    else:
+        lhs = assemble(inner(Constant(1.,), v)*dx)
+    rhs = assemble(inner(to_project, v)*dx)
+    as_backend_type(u.vector()).vec().\
+        pointwiseDivide(as_backend_type(rhs).vec(),
+                        as_backend_type(lhs).vec())
+    return u
 
 
 # import matplotlib.pyplot as plt 

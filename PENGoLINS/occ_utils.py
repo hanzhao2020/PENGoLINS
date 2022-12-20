@@ -84,7 +84,7 @@ def read_stp_file(filename, as_compound=False):
         stp_shapes = stp_shapes_temp
     return stp_shapes
 
-def write_geom_file(geom, filename, file_format="igs"):
+def write_geom_file(geom, filename):
     """
     Write OCC Geom surfaces or TopoDS Faces to igs file. If 
     a list of the geometries is given, write them to a 
@@ -96,7 +96,6 @@ def write_geom_file(geom, filename, file_format="igs"):
            TopoDS_Shape, Geom_Surface, Geom_BSplineSurface,
            Geom_Curve, Geom_BSplineCurve) or a list of geometry
     filename : str
-    file_format : str, {"igs", "stp"}, default: "igs"
     """
     if isinstance(geom, list):
         brep_builder = BRep_Builder()
@@ -124,10 +123,11 @@ def write_geom_file(geom, filename, file_format="igs"):
             to_save = make_edge(geom, 1e-9)
         else:
             to_save = geom
-            
-    if file_format == "igs":
+
+    file_format = filename.split(".")[-1]
+    if file_format.lower() in ["igs", "iges"]:
         write_iges_file(to_save, filename)
-    elif file_format == "stp":
+    elif file_format.lower() in ["stp", "step"]:
         write_step_file(to_save, filename)
     else:
         raise ValueError("{} format is not supported.".format(file_format))
