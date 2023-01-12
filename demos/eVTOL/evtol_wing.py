@@ -145,7 +145,7 @@ problem.mortar_meshes_setup(preprocessor.mapping_list,
                             penalty_coefficient)
 
 # Define magnitude of load
-load = Constant(40254) # The load should be in the unit of N/m^2
+load = Constant(40254) # The load should be in the unit of N/m^3
 f1 = as_vector([Constant(0.0), Constant(0.0), load])
 
 # Distributed downward load

@@ -159,7 +159,8 @@ for j in range(len(spline_inds)):
               "value = {}).".format(spline_inds[j], QoI_temp, QoI_ref))
 
 # Compute von Mises stress
-print("Computing von Mises stresses...")
+if mpirank == 0:
+    print("Computing von Mises stresses...")
 von_Mises_tops = []
 von_Mises_bots = []
 for i in range(problem.num_splines):

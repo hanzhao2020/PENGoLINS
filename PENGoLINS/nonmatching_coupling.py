@@ -183,7 +183,12 @@ class NonMatchingCoupling(object):
         mortar_cpfuncs are mortar meshes' control point functions
         (four components) on two sides.
         """
+        # For one element in ``mortar_funcs``:
+        # [[um0, dum0], [um1, dum1]]
         self.mortar_funcs = [[] for i in range(self.num_intersections)]
+        # For one element in ``mortar_cpfuncs``:
+        # [[[cp00, cp01, cp02, cp03], [dcp00, dcp01, dcp02, dcp03]], 
+        #  [[cp10, cp11, cp12, cp13], [dcp10, dcp11, dcp12, dcp13]]]
         self.mortar_cpfuncs = [[] for i in range(self.num_intersections)]
         for mortar_ind in range(self.num_intersections):
             for side in range(2):
@@ -347,6 +352,11 @@ class NonMatchingCoupling(object):
         Compute RHS non-matching residuals and LHS non-matching derivatives
         in dolfin Forms
         """
+        # list for UFL forms
+        self.Rm_form_list = [None for i in range(self.num_intersections)]
+        # self.dRm_dum_form_list = [None for i in 
+        #                           range(self.num_intersections)]
+        # list for Dolfin forms
         self.Rm_list = [None for i in range(self.num_intersections)]
         self.dRm_dum_list = [None for i in range(self.num_intersections)]
         dx_m = dx(metadata=self.int_dx_metadata)
@@ -383,6 +393,8 @@ class NonMatchingCoupling(object):
                                            for dRm_dum_ijk in dRm_dum_ij]
                                            for dRm_dum_ij in dRm_dum_i]
                                            for dRm_dum_i in dRm_dum_temp]
+            self.Rm_form_list[i] = Rm_temp
+            # self.dRm_dum_form_list[i] = dRm_dum_temp
             self.Rm_list[i] = Rm_temp_to_assemble
             self.dRm_dum_list[i] = dRm_dum_temp_to_assemble
 
@@ -567,6 +579,17 @@ class NonMatchingCoupling(object):
         self.A = create_nest_PETScMat(dRt_dut_IGA, comm=self.comm)
 
         return self.A, self.b
+
+    def update_mortar_funcs(self):
+        """
+        Update values in ``motar_funcs`` from ``spline_funcs``.
+        """
+        for i in range(len(self.transfer_matrices_list)):
+            for j in range(len(self.transfer_matrices_list[i])):
+                for k in range(len(self.transfer_matrices_list[i][j])):
+                    A_x_b(self.transfer_matrices_list[i][j][k], 
+                          self.spline_funcs[self.mapping_list[i][j]].\
+                          vector(), self.mortar_funcs[i][j][k].vector())
 
     def solve_linear_nonmatching_problem(self, solver="direct", 
                                 ksp_type=PETSc.KSP.Type.CG, 
@@ -794,12 +817,13 @@ class NonMatchingCoupling(object):
                 self.spline_funcs[i].assign(self.spline_funcs[i]+du_list[i])
                 v2p(du_list[i].vector()).ghostUpdate()
 
-            for i in range(len(self.transfer_matrices_list)):
-                for j in range(len(self.transfer_matrices_list[i])):
-                    for k in range(len(self.transfer_matrices_list[i][j])):
-                        A_x_b(self.transfer_matrices_list[i][j][k], 
-                              self.spline_funcs[self.mapping_list[i][j]].\
-                              vector(), self.mortar_funcs[i][j][k].vector())
+            self.update_mortar_funcs()
+            # for i in range(len(self.transfer_matrices_list)):
+            #     for j in range(len(self.transfer_matrices_list[i])):
+            #         for k in range(len(self.transfer_matrices_list[i][j])):
+            #             A_x_b(self.transfer_matrices_list[i][j][k], 
+            #                   self.spline_funcs[self.mapping_list[i][j]].\
+            #                   vector(), self.mortar_funcs[i][j][k].vector())
 
         if iga_dofs:
             return self.spline_funcs, u_iga
