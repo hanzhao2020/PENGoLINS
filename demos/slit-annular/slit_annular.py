@@ -98,16 +98,11 @@ left.mark(spline_boundaries1, 1)
 problem.splines[load_srf_ind].ds.setMarkers(markers=spline_boundaries1)
 
 f = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-source_terms = []
-for i in range(len(splines)):
-    source_terms += [inner(f0, problem.splines[i].rationalize(
-    problem.spline_test_funcs[i]))*problem.splines[i].dx]
-
-source_terms[load_srf_ind] += inner(f, 
-    problem.splines[load_srf_ind].rationalize(
-    problem.spline_test_funcs[load_srf_ind]))\
-    *problem.splines[load_srf_ind].ds(1)
+source_terms = [None for i in range(problem.num_splines)]
+source_terms[load_srf_ind] = inner(f, 
+                             problem.splines[load_srf_ind].rationalize(
+                             problem.spline_test_funcs[load_srf_ind]))\
+                             *problem.splines[load_srf_ind].ds(1)
 
 residuals = []
 for i in range(problem.num_splines):

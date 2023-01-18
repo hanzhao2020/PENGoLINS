@@ -97,12 +97,9 @@ for penalty_coefficient in pc_list:
     problem.mortar_meshes_setup(mapping_list, mortar_mesh_locations,
                                 penalty_coefficient)
 
-    source_terms = []
+    source_terms = [None for i in range(problem.num_splines)]
     residuals = []
-    f0 = as_vector([Constant(0.), Constant(0.), Constant(0.)])
-    for i in range(len(splines)):
-        source_terms += [inner(f0, problem.splines[i].rationalize(\
-            problem.spline_test_funcs[i]))*problem.splines[i].dx,]
+    for i in range(problem.num_splines):
         residuals += [SVK_residual(problem.splines[i], 
                                    problem.spline_funcs[i], 
                                    problem.spline_test_funcs[i], 
