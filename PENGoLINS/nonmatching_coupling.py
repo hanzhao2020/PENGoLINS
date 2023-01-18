@@ -454,7 +454,10 @@ class NonMatchingCoupling(object):
             if self.point_sources is not None:
                 for j, ps_ind in enumerate(self.point_source_inds):
                     if ps_ind == i:
-                        self.point_sources[j].apply(R_assemble)
+                        R_assemble_temp = R_assemble.copy()
+                        R_assemble_temp.zero()
+                        self.point_sources[j].apply(R_assemble_temp)
+                        R_assemble = R_assemble - R_assemble_temp
             R_FE += [v2p(R_assemble),]
             dR_du_FE += [m2p(dR_du_assemble),]
 

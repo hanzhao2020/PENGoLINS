@@ -111,7 +111,7 @@ for penalty_coefficient in pc_list:
     
     # PointSource will be applied mpisize times in parallel
     tip_load = -10./MPI.size(COMM)
-    ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), -tip_load)
+    ps0 = PointSource(spline0.V.sub(2), Point(1.,1.), tip_load)
     ps_list = [ps0,]
     ps_ind = [0,]
     problem.set_point_sources(point_sources=ps_list, 
