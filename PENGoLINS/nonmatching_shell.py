@@ -425,7 +425,7 @@ def penalty_energy(spline0, spline1, u0, u1,
     W_p = (W_pd_int + W_pr_int)*line_Jacobian*dx_m
     return W_p
 
-def SVK_residual(spline, u_hom, z_hom, E, nu, h, dWext):
+def SVK_residual(spline, u_hom, z_hom, E, nu, h, dWext=None):
     """
     PDE residaul of Kirchhoff--Love shell using the St.Venant--Kirchhoff 
     (SVK) material model.
@@ -449,10 +449,14 @@ def SVK_residual(spline, u_hom, z_hom, E, nu, h, dWext):
 
     Wint = surfaceEnergyDensitySVK(spline, X, x, E, nu, h)*spline.dx
     dWint = derivative(Wint, u_hom, z_hom)
-    res = dWint - dWext
+    if dWext is None:
+        res = dWint
+    else:
+        res = dWint - dWext
     return res
 
-def hyperelastic_residual(spline, u_hom, z_hom, h, psi_el, dWext, quad_pts=4):
+def hyperelastic_residual(spline, u_hom, z_hom, h, psi_el, 
+                          dWext=None, quad_pts=4):
     """
     PDE residual for Kirchhoff--Love shell using incompressible 
     hyperelastic model.
@@ -477,7 +481,10 @@ def hyperelastic_residual(spline, u_hom, z_hom, h, psi_el, dWext, quad_pts=4):
     psi = incompressiblePotentialKL(spline, X, x, psi_el)
     Wint = psi*dxi2*spline.dx
     dWint = derivative(Wint, u_hom, z_hom)
-    res = dWint - dWext
+    if dWext is None:
+        res = dWint
+    else:
+        res = dWint - dWext
     return res
 
 
