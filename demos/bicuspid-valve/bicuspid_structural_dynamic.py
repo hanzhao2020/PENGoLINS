@@ -7,19 +7,30 @@ parameters["std_out_all_processes"] = False
 
 SAVE_PATH = "./"
 
-def zero_bc(spline_generator, direction=0, side=0, n_layers=2):
+class SplineBC(object):
     """
-    Apply clamped boundary condition to spline.
+    Setting Dirichlet boundary condition to tIGAr spline generator.
     """
-    for field in [0,1,2]:
-        scalar_spline = spline_generator.getScalarSpline(field)
-        side_dofs = scalar_spline.getSideDofs(direction, side, 
-                                              nLayers=n_layers)
-        spline_generator.addZeroDofs(field, side_dofs)
+    def __init__(self, directions=[0,1], sides=[[0,1],[0,1]], 
+                 fields=[[[0,1,2],[0,1,2]],[[0,1,2],[0,1,2]]],
+                 n_layers=[[1,1],[1,1]]):
+        self.fields = fields
+        self.directions = directions
+        self.sides = sides
+        self.n_layers = n_layers
+
+    def set_bc(self, spline_generator):
+        for direction in self.directions:
+            for side in self.sides[direction]:
+                for field in self.fields[direction][side]:
+                    scalar_spline = spline_generator.getScalarSpline(field)
+                    side_dofs = scalar_spline.getSideDofs(direction,
+                                side, nLayers=self.n_layers[direction][side])
+                    spline_generator.addZeroDofs(field, side_dofs)
 
 def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=4, 
-                           zero_bcs=None, direction=0, side=0,
-                           zero_domain=None, fields=[0,1,2], index=0):
+                           spline_bc=None, zero_domain=None, 
+                           fields=[0,1,2], index=0):
     """
     Convert igakit NURBS to ExtractedBSpline.
     """
@@ -27,8 +38,8 @@ def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=4,
     quad_deg = surface.UDegree()*quad_deg_const
     spline_mesh = NURBSControlMesh4OCC(surface, useRect=False)
     spline_generator = EqualOrderSpline(worldcomm, num_field, spline_mesh)
-    if zero_bcs is not None:
-        zero_bcs(spline_generator, direction, side)
+    if spline_bc is not None:
+        spline_bc.set_bc(spline_generator)
     if zero_domain is not None:
         for i in fields:
             spline_generator.addZeroDofsByLocation(zero_domain(), i)
@@ -71,13 +82,13 @@ if mpirank == 0:
     print("Creating splines...")
 # Create tIGAr extracted spline instances
 splines = []
-bcs_funcs = [zero_bc,]*3 + [None,]*4
-bcs = [[1,0],]*3 + [[None, None]]*4
+spline_bc0 = SplineBC(directions=[0,1], sides=[[0,1], [0]],
+                      n_layers=[[1,1],[2]])
+bcs_list = [spline_bc0,]*3 + [None,]*4
+
 for i in range(num_surfs):
     splines += [OCCBSpline2tIGArSpline(bicuspid_leaflets[i], 
-                                       zero_bcs=bcs_funcs[i], 
-                                       direction=bcs[i][0], 
-                                       side=bcs[i][1], index=i),]
+                                       spline_bc=bcs_list[i], index=i),]
 
 # Create non-matching problem
 problem = NonMatchingCoupling(splines, E, h_th, nu, comm=worldcomm)
@@ -183,7 +194,7 @@ for time_iter in range(n_steps):
 
     # Solve nonlinear problem
     print("--- Step:", time_iter, ", time:", time_integrator_list[i].t, "---")
-    soln = problem.solve_nonlinear_nonmatching_problem(rtol=1e-2, max_it=30, 
+    soln = problem.solve_nonlinear_nonmatching_problem(rtol=1e-4, max_it=30, 
                                                        zero_mortar_funcs=False)
 
     # Save results and move forward
