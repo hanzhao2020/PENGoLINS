@@ -272,7 +272,7 @@ class NonMatchingCoupling(object):
             self.hm_avg_list += [hm_avg,]
 
         self.penalty_parameters(method=penalty_method)
-        self.mortar_mesh_forms()
+        self.mortar_mesh_symexp()
 
     def penalty_parameters(self, E=None, h_th=None, nu=None, 
                            method='minimum'):
@@ -347,14 +347,14 @@ class NonMatchingCoupling(object):
             self.alpha_d_list += [alpha_d,]
             self.alpha_r_list += [alpha_r,]
 
-    def mortar_mesh_forms(self):
+    def mortar_mesh_symexp(self):
         """
         Compute RHS non-matching residuals and LHS non-matching derivatives
         in dolfin Forms
         """
         # list for UFL forms
-        self.Rm_form_list = [None for i in range(self.num_intersections)]
-        # self.dRm_dum_form_list = [None for i in 
+        self.Rm_symexp_list = [None for i in range(self.num_intersections)]
+        # self.dRm_dum_symexp_list = [None for i in 
         #                           range(self.num_intersections)]
         # list for Dolfin forms
         self.Rm_list = [None for i in range(self.num_intersections)]
@@ -393,8 +393,8 @@ class NonMatchingCoupling(object):
                                            for dRm_dum_ijk in dRm_dum_ij]
                                            for dRm_dum_ij in dRm_dum_i]
                                            for dRm_dum_i in dRm_dum_temp]
-            self.Rm_form_list[i] = Rm_temp
-            # self.dRm_dum_form_list[i] = dRm_dum_temp
+            self.Rm_symexp_list[i] = Rm_temp
+            # self.dRm_dum_symexp_list[i] = dRm_dum_temp
             self.Rm_list[i] = Rm_temp_to_assemble
             self.dRm_dum_list[i] = dRm_dum_temp_to_assemble
 
