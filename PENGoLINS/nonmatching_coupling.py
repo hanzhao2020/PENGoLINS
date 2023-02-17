@@ -145,6 +145,7 @@ class NonMatchingCoupling(object):
             [[0,0],[0,1]].
         """
         self.num_intersections = len(mortar_nels)
+        self.mortar_nels = mortar_nels
         if mortar_coords is None:
             mortar_coords = [np.array([[0.,0.],[0.,1.]]),]\
                             *self.num_intersections
@@ -203,7 +204,7 @@ class NonMatchingCoupling(object):
                         [Function(self.dVms_control[mortar_ind])]
 
     def mortar_meshes_setup(self, mapping_list, mortar_parametric_coords, 
-                            penalty_coefficient=1000, 
+                            penalty_coefficient=1000, transfer_mat_deriv=1, 
                             penalty_method="minimum"):
         """
         Set up coupling of non-matching system for mortar meshes.
@@ -216,6 +217,7 @@ class NonMatchingCoupling(object):
         penalty_method : str, {'minimum', 'maximum', 'average'}
         """
         assert self.num_intersections == len(mapping_list)
+        self.transfer_mat_deriv = transfer_mat_deriv
         self._create_mortar_func_spaces()
         self._create_mortar_funcs()
 
@@ -239,10 +241,11 @@ class NonMatchingCoupling(object):
                                  mortar_parametric_coords[i][j])
                 # Create transfer matrices
                 transfer_matrices[j] = create_transfer_matrix_list(
-                    self.splines[self.mapping_list[i][j]].V, self.Vms[i], 1)
+                    self.splines[self.mapping_list[i][j]].V, self.Vms[i], 
+                    self.transfer_mat_deriv)
                 transfer_matrices_control[j] = create_transfer_matrix_list(
                     self.splines[self.mapping_list[i][j]].V_control, 
-                    self.Vms_control[i], 1)
+                    self.Vms_control[i], self.transfer_mat_deriv)
                 transfer_matrices_linear[j] = create_transfer_matrix(
                     self.splines[self.mapping_list[i][j]].V_linear,
                     self.Vms_control[i])
@@ -587,9 +590,9 @@ class NonMatchingCoupling(object):
         """
         Update values in ``motar_funcs`` from ``spline_funcs``.
         """
-        for i in range(len(self.transfer_matrices_list)):
-            for j in range(len(self.transfer_matrices_list[i])):
-                for k in range(len(self.transfer_matrices_list[i][j])):
+        for i in range(len(self.mortar_funcs)):
+            for j in range(len(self.mortar_funcs[i])):
+                for k in range(len(self.mortar_funcs[i][j])):
                     A_x_b(self.transfer_matrices_list[i][j][k], 
                           self.spline_funcs[self.mapping_list[i][j]].\
                           vector(), self.mortar_funcs[i][j][k].vector())
@@ -729,9 +732,9 @@ class NonMatchingCoupling(object):
 
         # Zero out values in mortar mesh functions if True
         if zero_mortar_funcs:
-            for i in range(len(self.transfer_matrices_list)):
-                for j in range(len(self.transfer_matrices_list[i])):
-                    for k in range(len(self.transfer_matrices_list[i][j])):
+            for i in range(len(self.mortar_funcs)):
+                for j in range(len(self.mortar_funcs[i])):
+                    for k in range(len(self.mortar_funcs[i][j])):
                             self.mortar_funcs[i][j][k].interpolate(Constant(
                                 (0.,)*len(self.mortar_funcs[i][j][k])))
 
@@ -821,9 +824,9 @@ class NonMatchingCoupling(object):
                 v2p(du_list[i].vector()).ghostUpdate()
 
             self.update_mortar_funcs()
-            # for i in range(len(self.transfer_matrices_list)):
-            #     for j in range(len(self.transfer_matrices_list[i])):
-            #         for k in range(len(self.transfer_matrices_list[i][j])):
+            # for i in range(len(self.mortar_funcs)):
+            #     for j in range(len(self.mortar_funcs[i])):
+            #         for k in range(len(self.mortar_funcs[i][j])):
             #             A_x_b(self.transfer_matrices_list[i][j][k], 
             #                   self.spline_funcs[self.mapping_list[i][j]].\
             #                   vector(), self.mortar_funcs[i][j][k].vector())

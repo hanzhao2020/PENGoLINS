@@ -1176,24 +1176,30 @@ def move_mortar_mesh(mortar_mesh, mesh_location):
     Parameters
     ----------
     mortar_mesh : dolfin Mesh
-    mesh_location : ndarray
+    mesh_location : ndarray or DOLFIN function
     """
-    Vm = VectorFunctionSpace(mortar_mesh, 'CG', 1)
-    um = Function(Vm)
+    if isinstance(mesh_location, DOLFIN_FUNCTION):
+        set_coordinates(mortar_mesh.geometry(), mesh_location)
+    elif isinstance(mesh_location, np.ndarray):
+        Vm = VectorFunctionSpace(mortar_mesh, 'CG', 1)
+        um = Function(Vm)
 
-    num_node = int(um.vector().vec().getSizes()[1]\
-                   /mortar_mesh.geometric_dimension())
-    if num_node == mesh_location.shape[0]:
-        mesh_location_data = mesh_location
+        num_node = int(um.vector().vec().getSizes()[1]\
+                       /mortar_mesh.geometric_dimension())
+        if num_node == mesh_location.shape[0]:
+            mesh_location_data = mesh_location
+        else:
+            mesh_location_data = generate_interpolated_data(mesh_location, 
+                                                            num_node)
+
+        mesh_location_flat = mesh_location_data[::-1].reshape(-1, 1)
+        v2p(um.vector()).setValues(np.arange(mesh_location_flat.size, 
+                                   dtype='int32'), mesh_location_flat)
+        v2p(um.vector()).ghostUpdate()
+        set_coordinates(mortar_mesh.geometry(), um)
     else:
-        mesh_location_data = generate_interpolated_data(mesh_location, 
-                                                        num_node)
-
-    mesh_location_flat = mesh_location_data[::-1].reshape(-1, 1)
-    v2p(um.vector()).setValues(np.arange(mesh_location_flat.size, 
-                               dtype='int32'), mesh_location_flat)
-    v2p(um.vector()).ghostUpdate()
-    set_coordinates(mortar_mesh.geometry(), um)
+        raise TypeError("Type "+str(type(mesh_location))+ 
+                        " is not supported for mesh_location.")
 
 def spline_mesh_phy_coordinates(spline, reshape=True):
     """

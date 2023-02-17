@@ -859,7 +859,6 @@ class OCCPreprocessing(object):
 
         for i in range(self.num_surfs):
             for j in range(i+1, self.num_surfs):
-                # print("i:", i, ", j:", j, " ---------------------")
                 bs_intersection = BSplineSurfacesIntersections(
                                     BSpline_surfs_temp[i], 
                                     BSpline_surfs_temp[j], rtol=rtol, 
@@ -891,12 +890,13 @@ class OCCPreprocessing(object):
                             self.mortar_nels += mortar_nels_temp
 
                     # print("mortar_nels_temp:", mortar_nels_temp)
+                    num_mortar_pts = [nel+1 for nel in mortar_nels_temp]
                     self.intersections_phy_coords += \
                         bs_intersection.get_coordinates(
-                            mortar_nels_temp, sort_axis)
+                            num_mortar_pts, sort_axis)
                     self.intersections_para_coords += \
                         bs_intersection.get_parametric_coordinates(
-                            mortar_nels_temp, sort_axis)
+                            num_mortar_pts, sort_axis)
 
         self.num_intersections_all = len(self.intersection_curves)
         self.compute_int_is_done = True
