@@ -44,6 +44,8 @@ class NonMatchingCoupling(object):
         self.num_splines = len(splines)
         self.num_field = num_field
         self.para_dim = splines[0].mesh.geometric_dimension()
+
+        self.h_th_is_function = False
         self._init_properties(E, h_th, nu)
 
         self.int_V_family = int_V_family
@@ -118,6 +120,8 @@ class NonMatchingCoupling(object):
                     if MPI.rank(self.comm) == 0:
                         raise AssertionError("Length of shell thickness list"
                             " doesn't match with the number of splines.")
+                if isinstance(self.h_th[0], DOLFIN_FUNCTION):
+                    self.h_th_is_function = True
             else:
                 self.h_th = [h_th for i in range(self.num_splines)]
 
@@ -231,11 +235,16 @@ class NonMatchingCoupling(object):
         self.h1m_list = []
         self.hm_avg_list = []
 
+        if self.h_th_is_function:
+            self.transfer_matrices_h_th_list = []
+
         # Create transfer matrices for displacements and cpfuncs
         for i in range(self.num_intersections):
             transfer_matrices = [None, None]
             transfer_matrices_control = [None, None]
             transfer_matrices_linear = [None, None]
+            if self.h_th_is_function:
+                transfer_matrices_h_th = [None, None]
             for j in range(len(self.mapping_list[i])):
                 move_mortar_mesh(self.mortar_meshes[i], 
                                  mortar_parametric_coords[i][j])
@@ -249,13 +258,20 @@ class NonMatchingCoupling(object):
                 transfer_matrices_linear[j] = create_transfer_matrix(
                     self.splines[self.mapping_list[i][j]].V_linear,
                     self.Vms_control[i])
+                if self.h_th_is_function:
+                    transfer_matrices_h_th[j] = create_transfer_matrix(
+                        self.h_th[self.mapping_list[i][j]].function_space(),
+                        self.Vms_control[i])
+
             move_mortar_mesh(self.mortar_meshes[i], 
                              mortar_parametric_coords[i][0])
 
             # Store transfer matrices in lists for future use
             self.transfer_matrices_list += [transfer_matrices,]
             self.transfer_matrices_control_list += [transfer_matrices_control]
-            self.transfer_matrices_linear_list += [transfer_matrices_linear,]
+            self.transfer_matrices_linear_list += [transfer_matrices_linear]
+            if self.h_th_is_function:
+                self.transfer_matrices_h_th_list += [transfer_matrices_h_th]
 
             # Compute element length
             s_ind0, s_ind1 = self.mapping_list[i]
@@ -317,8 +333,18 @@ class NonMatchingCoupling(object):
             # self.alpha_d_list += [alpha_d,]
             # self.alpha_r_list += [alpha_r,]
 
-            h_th0 = self.h_th[s_ind0]
-            h_th1 = self.h_th[s_ind1]
+            if self.h_th_is_function:
+                h_th_s0 = self.h_th[s_ind0]
+                h_th0 = Function(self.Vms_control[i])
+                A_x_b(self.transfer_matrices_h_th_list[i][0], 
+                      h_th_s0.vector(), h_th0.vector())
+                h_th_s1 = self.h_th[s_ind1]
+                h_th1 = Function(self.Vms_control[i])
+                A_x_b(self.transfer_matrices_h_th_list[i][1], 
+                      h_th_s1.vector(), h_th1.vector())
+            else:
+                h_th0 = self.h_th[s_ind0]
+                h_th1 = self.h_th[s_ind1]
 
             max_Aij0 = self.E[s_ind0]*h_th0\
                        /(1-self.nu[s_ind0]**2)
