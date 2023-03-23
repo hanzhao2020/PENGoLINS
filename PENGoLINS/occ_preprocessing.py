@@ -37,8 +37,7 @@ class BSplineSurfacesConnectedEdges(object):
         self.check_singularity = check_singularity
         self.cut_ratio = cut_ratio
 
-    @property
-    def connected_edges(self):
+    def compute_connected_edges(self):
         """
         Compute the OCC B-spline curve of the connected edges.
 
@@ -53,9 +52,12 @@ class BSplineSurfacesConnectedEdges(object):
         face0 = make_face(self.surf1, 1e-9)
         edges0 = get_face_edges(face0)
         self.connected_edges0 = []
+        self.edges_length0 = []
         for i in range(len(edges0)):
             int_cs = GeomAPI_IntCS(edges0[i], self.surf2)
             int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
+            edge_length = curve_length(edges0[i])
+            self.edges_length0 += [edge_length,]
             if len(int_cs_coord) >= num_pts_lim_on_edge:
                 # There are more than 2 intersecting points between
                 # this edge and surface, then check ``num_pts_check_on_edge``
@@ -74,14 +76,16 @@ class BSplineSurfacesConnectedEdges(object):
                     pts_surf_distances[j] = point_surface_distance(
                                             pt_temp, self.surf2)
                 max_dist = np.max(pts_surf_distances)
-                edge_length = curve_length(edges0[i])
-                if max_dist < max_pt_surf_dist_ratio*edge_length:
+                if max_dist < max_pt_surf_dist_ratio*self.edges_length0[i]:
                     self.connected_edges0 += [edges0[i],]
 
         face1 = make_face(self.surf2, 1e-9)
         edges1 = get_face_edges(face1)
         self.connected_edges1 = []
+        self.edges_length1 = []
         for i in range(len(edges1)):
+            edge_length = curve_length(edges1[i])
+            self.edges_length1 += [edge_length,]
             int_cs = GeomAPI_IntCS(edges1[i], self.surf1)
             int_cs_coord = get_int_cs_coords(int_cs, unique_coord=True)
             if len(int_cs_coord) >= num_pts_lim_on_edge:
@@ -96,8 +100,7 @@ class BSplineSurfacesConnectedEdges(object):
                     pts_surf_distances[j] = point_surface_distance(
                                             pt_temp, self.surf1)
                 max_dist = np.max(pts_surf_distances)
-                edge_length = curve_length(edges1[i])
-                if max_dist < max_pt_surf_dist_ratio*edge_length:
+                if max_dist < max_pt_surf_dist_ratio*self.edges_length1[i]:
                     self.connected_edges1 += [edges1[i],]
 
         # if len(self.connected_edges0) == len(self.connected_edges1):
@@ -111,11 +114,11 @@ class BSplineSurfacesConnectedEdges(object):
         #     connected_edges = []
 
         if len(self.connected_edges0) >= len(self.connected_edges1):
-            connected_edges = self.connected_edges0
+            self.connected_edges = self.connected_edges0
         else:
-            connected_edges = self.connected_edges1
+            self.connected_edges = self.connected_edges1
 
-        return connected_edges
+        return self.connected_edges
 
     @property
     def num_connected_edges(self):
@@ -304,7 +307,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
     """
     Class computes intersections between two B-spline surfaces.
     """
-    def __init__(self, surf1, surf2, rtol=1e-6, 
+    def __init__(self, surf1, surf2, rtol=1e-6, edge_rel_ratio=1e-3,
                  check_singularity=True, cut_ratio=0.03):
         """
         Parameters
@@ -312,6 +315,11 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         surf1 : OCC B-spline surface
         surf2 : OCC B-spline surface
         rtol : float, optional. Default is 1e-6.
+        edge_rel_ratio : float, optional. Default is 1e-4
+            Compute the relative ratio between the length of an intersection
+            and the minimum length of two surfaces' edges, if the ratio
+            is smaller than this value, then this intersection will be 
+            negelected.
         check_singularity : bool, optional
             If True, the algorithm will check if two ends of the
             intersections coincide withe the surface singularity.
@@ -323,7 +331,57 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         cut_ratio : float, optional, default is 0.03
         """
         super().__init__(surf1, surf2, check_singularity, cut_ratio)
-        self.int_ss = GeomAPI_IntSS(surf1, surf2, rtol)
+        self.rtol = rtol
+        self.edge_rel_ratio = edge_rel_ratio
+
+    def compute_intersections(self):
+        """
+        Return the intersection curves.
+
+        Returns
+        -------
+        intersections : list of OCC Geom_Curves
+        """
+        self.compute_connected_edges()
+        self.nz_edges_length = [elen for elen in self.edges_length0
+                                if elen > 1e-9]
+        self.nz_edges_length += [elen for elen in self.edges_length1
+                                 if elen > 1e-9]
+        self.min_edge_length = np.min(self.nz_edges_length)
+
+        self.intersections = []
+        if self.num_connected_edges > 0:
+            self.intersections = self.connected_edges
+        else:
+            self.int_ss = GeomAPI_IntSS(self.surf1, self.surf2, self.rtol)
+            if self.int_ss.NbLines() > 0:
+                int_lines = [self.int_ss.Line(i) for i in 
+                             range(1, self.int_ss.NbLines()+1)]
+                if len(int_lines) > 1:
+                    # Check if this is surface-edge intersection but computed 
+                    # as multiple intersections by ``GeomAPI_IntSS``. Using
+                    # the edge-surface intersection information from 
+                    # the parent class to check.
+                    if (len(self.connected_edges0) > 0 and 
+                        len(self.connected_edges1) == 0):
+                        self.intersections = self.connected_edges0
+                    elif (len(self.connected_edges0) == 0 and 
+                          len(self.connected_edges1) > 0):
+                        self.intersections = self.connected_edges1
+                    else:
+                        for i in range(len(int_lines)):
+                            int_length = curve_length(int_lines[i])
+                            # Negelect lines that are too short
+                            if (int_length/self.min_edge_length 
+                                > self.edge_rel_ratio):
+                                self.intersections += [int_lines[i]]
+                else:
+                    int_length = curve_length(int_lines[0])
+                    # Negelect lines that are too short
+                    if (int_length/self.min_edge_length 
+                        > self.edge_rel_ratio):
+                        self.intersections += [int_lines[0]]
+        return self.intersections
 
     @property
     def num_intersections(self):
@@ -338,53 +396,7 @@ class BSplineSurfacesIntersections(BSplineSurfacesConnectedEdges):
         -------
         num_intersections : int
         """
-        if self.num_connected_edges > 0:
-            num_intersections = self.num_connected_edges
-        else:
-            if self.int_ss.NbLines() > 1:
-                # Check if this is surface-edge intersection but computed 
-                # as multiple intersections by ``GeomAPI_IntSS``. Using
-                # the edge-surface intersection information from 
-                # the parent class to check.
-                if (len(self.connected_edges0) > 0 and 
-                    len(self.connected_edges1) == 0):
-                    num_intersections = len(self.connected_edges0)
-                elif (len(self.connected_edges0) == 0 and 
-                      len(self.connected_edges1) > 0):
-                    num_intersections = len(self.connected_edges1)
-                else:
-                    num_intersections = self.int_ss.NbLines()
-            else:   
-                num_intersections = self.int_ss.NbLines()
-        return num_intersections
-
-    @property
-    def intersections(self):
-        """
-        Return the intersection curves.
-
-        Returns
-        -------
-        intersections : list of OCC Geom_Curves
-        """
-        intersections = []
-        if self.num_connected_edges > 0:
-            intersections = self.connected_edges
-        else:
-            if self.int_ss.NbLines() > 1:
-                if (len(self.connected_edges0) > 0 and 
-                    len(self.connected_edges1) == 0):
-                    intersections = self.connected_edges0
-                elif (len(self.connected_edges0) == 0 and 
-                      len(self.connected_edges1) > 0):
-                    intersections = self.connected_edges1
-                else:
-                    for i in range(self.int_ss.NbLines()):
-                        intersections += [self.int_ss.Line(i+1)]
-            else:   
-                for i in range(self.int_ss.NbLines()):
-                    intersections += [self.int_ss.Line(i+1)]
-        return intersections
+        return len(self.intersections)
 
     def get_coordinate(self, ind, num_pts=20, sort_axis=None):
         """
@@ -773,7 +785,7 @@ class OCCPreprocessing(object):
     def compute_intersections(self, rtol=1e-4, mortar_refine=1, 
                               mortar_nels=None, min_mortar_nel=8, 
                               sort_axis=None, check_singularity=True,
-                              cut_ratio=0.03):
+                              edge_rel_ratio=1e-3, cut_ratio=0.03):
         """
         Compute intersections between all input BSpline surfaces.
 
@@ -799,6 +811,11 @@ class OCCPreprocessing(object):
             ignored when getting physical and parametric coordinates. 
             This will help reducing the stress concentration near the 
             surface singularity. Default is True
+        edge_rel_ratio : float, optional. Default is 1e-4
+            Compute the relative ratio between the length of an intersection
+            and the minimum length of two surfaces' edges, if the ratio
+            is smaller than this value, then this intersection will be 
+            negelected.
         cut_ratio : float, optional, default is 0.03
         """
         if self.refine_is_done:
@@ -859,11 +876,14 @@ class OCCPreprocessing(object):
 
         for i in range(self.num_surfs):
             for j in range(i+1, self.num_surfs):
+                # print("i: {}, j: {}".format(i, j))
                 bs_intersection = BSplineSurfacesIntersections(
                                     BSpline_surfs_temp[i], 
                                     BSpline_surfs_temp[j], rtol=rtol, 
+                                    edge_rel_ratio=edge_rel_ratio,
                                     check_singularity=check_singularity,
                                     cut_ratio=cut_ratio)
+                bs_intersection.compute_intersections()
                 if bs_intersection.num_intersections > 0:
                     num_int = bs_intersection.num_intersections
                     self.mapping_list += [[i, j],]*num_int
@@ -986,6 +1006,7 @@ class OCCPreprocessing(object):
         self.start_display(display, show_triedron)
 
         for i in range(self.num_intersections_all):
+            # print('intersection: {}'.format(i))
             display.DisplayShape(self.intersection_curves[i],
                                  color=color)
 
