@@ -342,7 +342,8 @@ def copy_BSpline_surface(bs):
     bs_new = Geom_BSplineSurface(bs.Poles(), weights, 
                                  bs.UKnots(), bs.VKnots(), 
                                  bs.UMultiplicities(), bs.VMultiplicities(), 
-                                 bs.UDegree(), bs.VDegree())
+                                 bs.UDegree(), bs.VDegree(),
+                                 bs.IsUPeriodic(), bs.IsVPeriodic())
     return bs_new
 
 def get_curve_coord(curve, num_pts=20, sort_axis=None, 
