@@ -1342,6 +1342,89 @@ def lumped_project(to_project, V):
                         as_backend_type(lhs).vec())
     return u
 
+def spline_project(spline, V, to_project, lump_mass=False):
+    """
+    Project an expression to a user defined function space ``V``.
+
+    Parameters
+    ----------
+    spline : tIGAr extracted spline
+    V : dolfin function space
+    to_project : ufl expression
+    lump_mass : bool, default is False
+
+    Returns
+    -------
+    retval : dolfin function
+    """
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    rhs_form = inner(to_project, v)*spline.dx.meas
+    retval = Function(V)
+    if lump_mass:
+        if len(to_project.ufl_shape) > 0:
+            num_field = to_project.ufl_shape[0]
+            lhs_form = inner(Constant((1.0)*num_field))*spline.dx.meas
+        else:
+            lhs_form = inner(Constant((1.0)),v)*spline.dx.meas
+        A = assemble(lhs_form)
+        b = assemble(rhs_form)
+        as_backend_type(retval.vector()).vec()\
+            .pointwiseDivide(as_backend_type(b).vec(),
+                             as_backend_type(A).vec())
+    else:
+        lhs_form = inner(u,v)*spline.dx.meas
+        A = assemble(lhs_form)
+        b = assemble(rhs_form)
+        solve(A, retval.vector(), b)
+    return retval
+
+def spline_project_scalar(spline, to_project, rationalize=True, 
+                          lump_mass=False):
+    """
+    Project a scalar field expression to FE function space 
+    ``spline.V_control``
+
+    Parameters
+    ----------
+    spline : tIGAr extracted spline
+    to_project : ufl expression
+    rationalize : bool, default is True
+    lump_mass : bool, default is False
+    """
+    u = TrialFunction(spline.V_control)
+    v = TestFunction(spline.V_control)
+    u = spline.rationalize(u)
+    v = spline.rationalize(v)
+    rhs_form = inner(to_project, v)*spline.dx
+    retval = Function(spline.V_control)
+    if lump_mass:
+        iga_dofs = PETScVector(zero_petsc_vec(m2p(spline.M_control).sizes[1]))
+        lhs_form = inner(Constant((1.0)),v)*spline.dx
+        lhs_vec_FE = assemble(lhs_form)
+        lhs_vec = AT_x(m2p(spline.M_control), v2p(lhs_vec_FE))
+        rhs_vec_FE = assemble(rhs_form)
+        rhs_vec = AT_x(m2p(spline.M_control), v2p(rhs_vec_FE))
+        as_backend_type(iga_dofs.vector()).vec()\
+            .pointwiseDivide(as_backend_type(rho_vec),
+                             as_backend_type(lhs_vec))
+        retval.vector()[:] = spline.M_control*iga_dofs
+    else:
+        iga_dofs = PETScVector(zero_petsc_vec(m2p(spline.M_control).sizes[1]))
+        lhs_form = inner(u,v)*spline.dx
+        A_FE = assemble(lhs_form)
+        A_IGA = AT_R_B(m2p(spline.M_control), m2p(A_FE), 
+                       m2p(spline.M_control))
+        b_FE = assemble(rhs_form)
+        b_IGA = AT_x(m2p(spline.M_control), v2p(b_FE))
+        solve(PETScMatrix(A_IGA), iga_dofs, PETScVector(b_IGA), "mumps")
+        retval.vector()[:] = spline.M_control*iga_dofs
+    if rationalize:
+        as_backend_type(retval.vector()).vec()\
+            .pointwiseDivide(as_backend_type(retval.vector()).vec(),
+                as_backend_type(spline.cpFuncs[-1].vector()).vec())
+    return retval
+
 
 # import matplotlib.pyplot as plt 
 # from mpl_toolkits.mplot3d import Axes3D 
