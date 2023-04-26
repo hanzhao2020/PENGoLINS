@@ -7,14 +7,20 @@ from PENGoLINS.occ_preprocessing import *
 from PENGoLINS.nonmatching_coupling import *
 
 SAVE_PATH = "./"
+FOLDER_NAME = "results/"
 
 def clampedBC(spline_generator, side=0, direction=0):
     """
     Apply clamped boundary condition to spline.
     """
     for field in [0,1,2]:
+        if field in [1]:
+            n_layers = 1
+        else:
+            n_layers = 2
         scalar_spline = spline_generator.getScalarSpline(field)
-        side_dofs = scalar_spline.getSideDofs(direction, side, nLayers=2)
+        side_dofs = scalar_spline.getSideDofs(direction, side, 
+                                              nLayers=n_layers)
         spline_generator.addZeroDofs(field, side_dofs)
 
 def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=4, 
@@ -29,7 +35,7 @@ def OCCBSpline2tIGArSpline(surface, num_field=3, quad_deg_const=4,
     spline_generator = EqualOrderSpline(worldcomm, num_field, spline_mesh)
     if setBCs is not None:
         setBCs(spline_generator, side, direction)
-    spline_generator.writeExtraction(DIR)
+    # spline_generator.writeExtraction(DIR)
     spline = ExtractedSpline(spline_generator, quad_deg)
     return spline
 
@@ -184,12 +190,12 @@ von_Mises_tops = []
 for i in range(problem.num_splines):
     spline_stress = ShellStressSVK(problem.splines[i], 
                                    problem.spline_funcs[i],
-                                   E, nu, h_th, linearize=True,) 
-                                   # G_det_min=5e-2)
+                                   E, nu, h_th, linearize=True) 
     # von Mises stresses on top surfaces
-    von_Mises_top = spline_stress.vonMisesStress(h_th/2)
+    # Due to direction of A2, top surface: xi2 = -h_th/2
+    von_Mises_top = spline_stress.vonMisesStress(-h_th/2)
     von_Mises_top_proj = problem.splines[i].projectScalarOntoLinears(
-                         von_Mises_top, lumpMass=True)
+                         von_Mises_top, lumpMass=False)
     von_Mises_tops += [von_Mises_top_proj]
 
 if mpirank == 0:
@@ -198,11 +204,11 @@ if mpirank == 0:
 if save_disp:
     for i in range(problem.num_splines):
         save_results(splines[i], problem.spline_funcs[i], i, 
-                     save_path=SAVE_PATH, folder="results/", 
+                     save_path=SAVE_PATH, folder=FOLDER_NAME, 
                      save_cpfuncs=True, comm=worldcomm)
 if save_stress:
     for i in range(problem.num_splines):
         von_Mises_tops[i].rename("von_Mises_top_"+str(i), 
                                  "von_Mises_top_"+str(i))
-        File(SAVE_PATH+"results/von_Mises_top_"+str(i)+".pvd") \
+        File(SAVE_PATH+FOLDER_NAME+"von_Mises_top_"+str(i)+".pvd") \
             << von_Mises_tops[i]
