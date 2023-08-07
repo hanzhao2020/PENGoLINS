@@ -1,11 +1,7 @@
 """
-The nonmatching leaflets geometry can be downloaded from the following url:
-    
-    https://drive.google.com/file/d/1Adzh5_9AwfEZ9OoXvBPhCmvnPDGBmQ2h/view?usp=sharing
-
-and extracted using the command "tar -xvzf nonmatching_leaflets.tgz".
+The compressed non-matching heart valve geometry can be downloaded from:
+    https://drive.google.com/file/d/1Fq_-3f6na69XIKLPLA6ZLZvMFMCd0IJp/view?usp=sharing
 """
-
 from os import path
 from mshr import *
 from CouDALFISh import *
@@ -21,7 +17,8 @@ if mpirank == 0:
         print("Start current time: ", start_current_time)
 parameters["std_out_all_processes"] = False
 
-SAVE_PATH = "./results/"
+# SAVE_PATH = "./results/"
+SAVE_PATH = "/home/han/Documents/test_results/results/"
 if not path.exists(SAVE_PATH):
         os.mkdir(SAVE_PATH)
 RESTART_PATH = SAVE_PATH+"restarts"

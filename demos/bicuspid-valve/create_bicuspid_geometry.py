@@ -1,11 +1,6 @@
 """
-Download bicuspid valve geometry from the following link:
-
-    https://drive.google.com/file/d/1FaAEzq4mQ-nukuhBnbEiTwSCMUt6uDuX/view?usp=sharing
-
-and extract txt file using commnad:
-    
-    tar -xzfv fusion_50.tar.gz
+Download compressed bicuspid valve geometry from the following link:
+    https://drive.google.com/file/d/1fBrtRn_ufo5SQiJQTH7XFIQE5ptLuJdv/view?usp=sharing
 
 Then run this script to generate igs file.
 """
@@ -13,13 +8,14 @@ Then run this script to generate igs file.
 from PENGoLINS.occ_utils import *
 from PENGoLINS.igakit_utils import *
 
-file_path = "./fusion_50/"
+file_path = "./BAV_scaled_fusion_90/"
 write_dir = "./"
 num_surfs = 7
 ik_nurbs_surfs = []
 
 for i in range(num_surfs):
-    fname = "smesh."+str(i)+".1.txt"
+    # fname = "smesh."+str(i)+".1.txt"
+    fname = "smesh."+str(i+1)+".dat"
     f = open(file_path+fname, 'r')
     fs = f.read()
     f.close()

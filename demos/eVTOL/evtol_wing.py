@@ -1,7 +1,6 @@
 """
-The required eVTOL geometry can be downloaded from:
-    https://drive.google.com/file/d/1xpY8ACQlodmwkUZsiEQvTZPcUu-uezgi/view?usp=sharing
-and extracted using the command "tar -xvzf eVTOL_wing_structure.tgz".
+The compressed eVTOL geometry can be downloaded from:
+    https://drive.google.com/file/d/1IVNmFAEEMyM0p4QuEITgGMuG43UF2q5U/view?usp=sharing
 """
 from PENGoLINS.occ_preprocessing import *
 from PENGoLINS.nonmatching_coupling import *
