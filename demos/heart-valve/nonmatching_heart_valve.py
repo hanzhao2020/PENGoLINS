@@ -17,8 +17,7 @@ if mpirank == 0:
         print("Start current time: ", start_current_time)
 parameters["std_out_all_processes"] = False
 
-# SAVE_PATH = "./results/"
-SAVE_PATH = "/home/han/Documents/test_results/results/"
+SAVE_PATH = "./results/"
 if not path.exists(SAVE_PATH):
         os.mkdir(SAVE_PATH)
 RESTART_PATH = SAVE_PATH+"restarts"
