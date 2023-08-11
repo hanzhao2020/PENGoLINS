@@ -488,5 +488,77 @@ def hyperelastic_residual(spline, u_hom, z_hom, h, psi_el,
     return res
 
 
+# class throughThicknessMeasureExtension(throughThicknessMeasure):
+#     def int_xi2_dxi2(self, integrand):
+#         integral = 0.0
+#         for i in range(0, self.nPoints):
+#             integral += integrand(self.xi2[i])*self.xi2[i]*self.w[i]
+#         return integral
+
+#     def int_xi2square_dxi2(self, integrand):
+#         integral = 0.0
+#         for i in range(0, self.nPoints):
+#             integral += integrand(self.xi2[i])*pow(self.xi2[i],2)*self.w[i]
+#         return integral
+
+#     def int_xi2cube_dxi2(self, integrand):
+#         integral = 0.0
+#         for i in range(0, self.nPoints):
+#             integral += integrand(self.xi2[i])*pow(self.xi2[i],3)*self.w[i]
+#         return integral
+
+# def incompressiblePressureTemp(psi_el,E):
+#     """
+#     Compute the pressure Lagrange multiplier for the incompressibility
+#     constraint, given Green--Lagrange strain ``E`` in Cartesian coordinates
+#     and hyperelastic energy ``psi_el``, which is a function of Cartesian
+#     Green--Lagrange strain.
+#     """
+#     dpsi_el_dC = 0.5*diff(psi_el(E),E)
+#     C22 = 2.0*E[2,2] + 1.0
+#     return 2.0*dpsi_el_dC[2,2]*C22
+
+# def incompressibleDbar(spline,X,x,psi_el):
+#     """
+#     Return the total strain energy density, as a Python function of the
+#     through-thickness coordinate ``xi2``, given the elastic potential
+#     ``psi_el``, as a Python function of 3D Cartesian Green--Lagrange strain,
+#     the ``spline`` defining the parameter and function spaces, and the 
+#     reference and deformed configurations, ``X`` and ``x``.
+#     """
+#     A0,A1,A2,deriv_A2,A,B = surfaceGeometry(spline,X)
+#     a0,a1,a2,deriv_a2,a,b = surfaceGeometry(spline,x)
+#     def closure(xi2):
+#         G = metricKL(A,B,xi2)
+#         g = metricKL(a,b,xi2)
+#         E_flat = 0.5*(g - G)
+#         G0,G1 = curvilinearBasisKL(A0,A1,deriv_A2,xi2)
+#         E_2D = covariantRank2TensorToCartesian2D(E_flat,G,G0,G1)
+#         C_2D = 2.0*E_2D + Identity(2)
+#         C22 = 1.0/det(C_2D)
+#         E22 = 0.5*(C22-1.0)
+#         E = as_tensor([[E_2D[0,0], E_2D[0,1], 0.0],
+#                        [E_2D[1,0], E_2D[1,1], 0.0],
+#                        [0.0,       0.0,       E22]])
+#         E = variable(E)
+#         C = 2.0*E + Identity(3)
+#         J = sqrt(det(C))
+#         p = incompressiblePressureTemp(psi_el,E)
+#         psi_incomp = psi_el(E) - p*(J-1.0)
+        
+#         # Material tensor
+#         S = diff(psi_incomp, E)
+#         C_tensor = diff(S, E)
+#         # C_sub = C_tensor[0:2,0:2,0:2,0:2]
+#         i0,i1,i2,i3 = indices(4)
+#         C_hat = as_tensor(C_tensor[i0,i1,i2,i3] - C_tensor[i0,i1,2,2]
+#                 *C_tensor[2,2,i2,i3]/C_tensor[2,2,2,2], (i0,i1,i2,i3))
+#         D_bar = as_tensor([[C_hat[0,0,0,0], C_hat[0,0,1,1], C_hat[0,0,0,1]],
+#                            [C_hat[0,0,1,1], C_hat[1,1,1,1], C_hat[1,1,0,1]],
+#                            [C_hat[0,0,0,1], C_hat[1,1,0,1], C_hat[0,1,0,1]]])
+#         return D_bar
+#     return closure
+
+
 if __name__ == "__main__":
     pass

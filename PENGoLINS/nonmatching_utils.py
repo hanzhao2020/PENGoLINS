@@ -1272,6 +1272,28 @@ def spline_mesh_size(spline):
     h = h_para*sqrt(tr(dX_dxi*dX_dxi.T))
     return h
 
+def spline_mesh_area(spline):
+    """
+    Compute the mesh size in the physical space of 
+    ExtractedSpline.
+
+    Parameters
+    ----------
+    spline : ExtractedSpline
+
+    Returns
+    -------
+    h : ufl math functions
+    """
+    # dxi_dxiHat = 0.5*ufl.Jacobian(spline.mesh)
+    # dX_dxi = grad(spline.F)
+    # dX_dxiHat = dX_dxi*dxi_dxiHat
+    # h = sqrt(tr(dX_dxiHat*dX_dxiHat.T))
+    h_para = CellVolume(spline.mesh)
+    dX_dxi = grad(spline.F)
+    h = h_para*sqrt(tr(dX_dxi*dX_dxi.T))
+    return h
+
 def point_in_mesh(mesh, xi):
     """
     Check if a point of location ``xi`` is inside mesh.

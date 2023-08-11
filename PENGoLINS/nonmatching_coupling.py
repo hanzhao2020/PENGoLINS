@@ -221,6 +221,7 @@ class NonMatchingCoupling(object):
         penalty_method : str, {'minimum', 'maximum', 'average'}
         """
         assert self.num_intersections == len(mapping_list)
+        self.penalty_method = penalty_method
         self.transfer_mat_deriv = transfer_mat_deriv
         self._create_mortar_func_spaces()
         self._create_mortar_funcs()
@@ -290,7 +291,7 @@ class NonMatchingCoupling(object):
             self.h1m_list += [h1m]
             self.hm_avg_list += [hm_avg,]
 
-        self.penalty_parameters(method=penalty_method)
+        self.penalty_parameters(method=self.penalty_method)
         self.mortar_mesh_symexp()
 
     def penalty_parameters(self, E=None, h_th=None, nu=None, 

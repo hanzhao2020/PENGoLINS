@@ -785,7 +785,7 @@ class OCCPreprocessing(object):
     def compute_intersections(self, rtol=1e-4, mortar_refine=1, 
                               mortar_nels=None, min_mortar_nel=8, 
                               sort_axis=None, check_singularity=True,
-                              edge_rel_ratio=1e-3, cut_ratio=0.03):
+                              edge_rel_ratio=1e-3, cut_ratio=0):
         """
         Compute intersections between all input BSpline surfaces.
 

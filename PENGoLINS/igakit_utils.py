@@ -115,6 +115,9 @@ def ikNURBS2BSpline_surface(ik_nurbs):
         v_knots.SetValue(i+1, v_knots_unique[i])
         v_mults.SetValue(i+1, int(v_mults_array[i]))
 
+    # print("u_mults_array:", u_mults_array)
+    # print("v_mults_array:", v_mults_array)
+
     BSpline_surface = Geom_BSplineSurface(poles, weights, u_knots, v_knots, 
                                           u_mults, v_mults, p_u, p_v)
 
