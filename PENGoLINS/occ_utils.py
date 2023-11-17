@@ -1478,6 +1478,10 @@ class BSplineSurfaceData(object):
         self.VMultiplicities = TColStdArray1OfReal2Array(
             self.surface.VMultiplicities(), dtype="int32")
         if normalize:
+            if self.UKnots[0] < 0:
+                self.UKnots += -self.UKnots[0]
+            if self.VKnots[0] < 0:
+                self.VKnots += -self.VKnots[0]
             self.UKnots = self.UKnots/self.UKnots[-1]
             self.VKnots = self.VKnots/self.VKnots[-1]
 

@@ -11,7 +11,7 @@ from igakit.io import VTK
 from PENGoLINS.occ_utils import *
 
 def BSpline_surface2ikNURBS(occ_bs_surf, p=3, u_num_insert=0, 
-                            v_num_insert=0, refine=False):
+                            v_num_insert=0, refine=False, geom_scale=1.):
     """
     Convert OCC BSplineSurface to igakit NURBS and refine the 
     surface via knot insertion and order elevation as need.
@@ -23,13 +23,16 @@ def BSpline_surface2ikNURBS(occ_bs_surf, p=3, u_num_insert=0,
     u_num_insert : int, optional, default is 0
     v_num_insert : int, optional, default is 0
     refine : bool, default is True
+    geom_scale : float, scale to change geometry units, default is 1
 
     Returns
     -------
     ikNURBS : igakit NURBS
     """
     bs_data = BSplineSurfaceData(occ_bs_surf)
-    ikNURBS = NURBS(bs_data.knots, bs_data.control)
+    bs_cp = bs_data.control
+    bs_cp[:,:,0:-1] = bs_cp[:,:,0:-1]*geom_scale
+    ikNURBS = NURBS(bs_data.knots, bs_cp)
 
     if refine:
         # Order elevation

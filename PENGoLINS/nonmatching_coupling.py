@@ -9,12 +9,19 @@ from PENGoLINS.nonmatching_shell import *
 from ufl import min_value
 from ufl import max_value
 
+# import psutil
+# def memory_usage_psutil():
+#     # return the memory usage in MB
+#     process = psutil.Process(os.getpid())
+#     mem = process.memory_info()[0]/float(1024**2)
+#     return mem
+
 class NonMatchingCoupling(object):
     """
     Class sets up the system of coupling of non-matching with 
     multiple spline patches.
     """
-    def __init__(self, splines, E, h_th, nu, num_field=3, 
+    def __init__(self, splines, E, h_th, nu, 
                  int_V_family='CG', int_V_degree=1,
                  int_dx_metadata=None, contact=None, comm=None):
         """
@@ -28,8 +35,6 @@ class NonMatchingCoupling(object):
         E : ufl Constant or list, Young's modulus
         h_th : ufl Constant or list, thickness of the splines
         nu : ufl Constant or list, Poisson's ratio
-        num_field : int, optional
-            Number of field of the unknowns. Default is 3.
         int_V_family : str, optional, element family for 
             mortar meshes. Default is 'CG'.
         int_V_degree : int, optional, default is 1.
@@ -42,8 +47,10 @@ class NonMatchingCoupling(object):
         """
         self.splines = splines
         self.num_splines = len(splines)
-        self.num_field = num_field
-        self.para_dim = splines[0].mesh.geometric_dimension()
+        # Number of spatial dimension
+        self.nsd = self.splines[0].nsd  
+        # Number of parametric dimension
+        self.npd = splines[0].mesh.geometric_dimension()  
 
         self.h_th_is_function = False
         self._init_properties(E, h_th, nu)
@@ -159,12 +166,12 @@ class NonMatchingCoupling(object):
 
     def _create_mortar_func_spaces(self):
         """
-        Vms are vector function spaces with dimension of ``num_field``
+        Vms are vector function spaces with dimension of ``nsd``
         Vms_control are scalar function spaces
         dVms are vector function space with dimension of  
-        ``num_field``*``para_dim``.
+        ``nsd``*``npd``.
         dVms_control are vector function spaces with dimension of 
-        ``para_dim``
+        ``npd``
         """
         self.Vms = []
         self.Vms_control = []
@@ -173,13 +180,13 @@ class NonMatchingCoupling(object):
 
         for mortar_mesh in self.mortar_meshes:
             self.Vms += [VectorFunctionSpace(mortar_mesh, self.int_V_family, 
-                         self.int_V_degree, dim=self.num_field)]
+                         self.int_V_degree, dim=self.nsd)]
             self.Vms_control += [FunctionSpace(mortar_mesh, self.int_V_family, 
                          self.int_V_degree)]
             self.dVms += [VectorFunctionSpace(mortar_mesh, self.int_V_family, 
-                         self.int_V_degree, dim=self.num_field*self.para_dim)]
+                         self.int_V_degree, dim=self.nsd*self.npd)]
             self.dVms_control += [VectorFunctionSpace(mortar_mesh, self.int_V_family, 
-                         self.int_V_degree, dim=self.para_dim)]
+                         self.int_V_degree, dim=self.npd)]
 
     def _create_mortar_funcs(self):
         """
@@ -201,7 +208,7 @@ class NonMatchingCoupling(object):
                     [[Function(self.Vms[mortar_ind]),
                       Function(self.dVms[mortar_ind])]]
                 self.mortar_cpfuncs[mortar_ind] += [[[],[]]]
-                for field in range(self.num_field+1):
+                for field in range(self.nsd+1):
                     self.mortar_cpfuncs[mortar_ind][side][0] += \
                         [Function(self.Vms_control[mortar_ind])]
                     self.mortar_cpfuncs[mortar_ind][side][1] += \
@@ -443,7 +450,7 @@ class NonMatchingCoupling(object):
 
         # self.residuals = residuals
         # self.residuals_deriv = residuals_deriv
-
+        self.residuals_form = residuals
         self.residuals = [Form(res) for res in residuals]
         self.residuals_deriv = [Form(res_deriv) 
                                 for res_deriv in residuals_deriv]
@@ -506,7 +513,6 @@ class NonMatchingCoupling(object):
             dRm_dum = transfer_penalty_residual_deriv(
                            self.dRm_dum_list[i],  
                            self.transfer_matrices_list[i])
-
             for j in range(len(Rm)):
                 if Rm_FE[self.mapping_list[i][j]] is not None:
                     Rm_FE[self.mapping_list[i][j]] += Rm[j]
@@ -520,7 +526,7 @@ class NonMatchingCoupling(object):
                                 [self.mapping_list[i][k]] += dRm_dum[j][k]
                         else:
                             dRm_dum_FE[self.mapping_list[i][j]]\
-                                [self.mapping_list[i][k]] = dRm_dum[j][k]
+                                [self.mapping_list[i][k]] = dRm_dum[j][k]                    
 
         # Filling lower triangle blocks of non-matching derivatives
         for i in range(self.num_splines-1):
@@ -686,6 +692,7 @@ class NonMatchingCoupling(object):
             self.u_list += [zero_petsc_vec(self.splines[i].M.size(1), 
                                       comm=self.splines[i].comm),]
         self.u = create_nest_PETScVec(self.u_list, comm=self.comm)
+
         solve_nonmatching_mat(self.A, self.u, -self.b, solver=solver, 
                               ksp_type=ksp_type, pc_type=pc_type, 
                               fieldsplit_type=fieldsplit_type,
@@ -699,6 +706,7 @@ class NonMatchingCoupling(object):
                                          self.spline_funcs[i].vector().vec())
             v2p(self.spline_funcs[i].vector()).ghostUpdate()
             v2p(self.spline_funcs[i].vector()).assemble()
+
         return self.spline_funcs
 
     def solve_nonlinear_nonmatching_problem(self, solver="direct", 
@@ -711,8 +719,10 @@ class NonMatchingCoupling(object):
                                 fieldsplit_pc_type=PETSc.PC.Type.LU, 
                                 ksp_rtol=1e-15, ksp_max_it=100000,
                                 ksp_view=False, ksp_monitor_residual=False, 
-                                iga_dofs=False, modified_Newton=False,
-                                LHS_nm_assemble_times=1):
+                                iga_dofs=False, 
+                                modified_Newton=False,
+                                LHS_assemble_times=1,
+                                increase_rtol=False, max_rtol=1e-1):
         """
         Solve the nonlinear non-matching system using Newton's method.
 
@@ -748,9 +758,16 @@ class NonMatchingCoupling(object):
             If True, return nonlinear solution in IGA DoFs
         modified_Newton : bool, default is False
             If True, assemble the LHS non-matching contribution 
-            ``LHS_nm_assemble_times`` times for each nonlinear
+            ``LHS_assemble_times`` times for each nonlinear
             solve.
-        LHS_nm_assemble_times : int, default is 1
+        LHS_assemble_times : int, default is 1
+        increase_rtol : bool, default is False
+            If True, gradually increase the relative tolerance to 
+            make the nonlinear solver to converge until the 
+            maximum rtol ``max_rtol`` is reached and raise the error.
+        max_rtol : float, default is 0.1
+            If ``increase_rtol`` is True, gradually increase the 
+            relative tolerance with the limit of ``max_rtol``.
 
         Returns
         -------
@@ -776,10 +793,11 @@ class NonMatchingCoupling(object):
                                    u_FE_temp.vector())),]
                 self.spline_funcs[i].interpolate(Constant((0.,0.,0.)))
             u_iga = create_nest_PETScVec(u_iga_list, comm=self.comm)
-                
+        
+        self.rtol_init = rtol
         for newton_iter in range(max_it+1):
             if modified_Newton:
-                if newton_iter < LHS_nm_assemble_times:
+                if newton_iter < LHS_assemble_times:
                     assemble_nonmatching_LHS = True
                 else:
                     assemble_nonmatching_LHS = False
@@ -808,8 +826,11 @@ class NonMatchingCoupling(object):
             rel_norm = current_norm/ref_error
             if newton_iter >= 0:
                 if MPI.rank(self.comm) == 0:
-                    print("Solver iteration: {}, relative norm: {:.12}."
-                          .format(newton_iter, rel_norm))
+                    # print("Solver iteration: {}, relative norm: {:.12}."
+                    #       .format(newton_iter, rel_norm))
+                    print("Solver iteration: {}, relative norm: {:.8}, "
+                          "true norm: {:12.8}."
+                          .format(newton_iter, rel_norm, current_norm))
                 sys.stdout.flush()
 
             if rel_norm < rtol:
@@ -817,12 +838,39 @@ class NonMatchingCoupling(object):
                     print("Newton's iteration finished in {} "
                           "iterations (relative tolerance: {})."
                           .format(newton_iter, rtol))
+                rtol = self.rtol_init
                 break
 
+            # if newton_iter == max_it:
+            #     if MPI.rank(self.comm) == 0:
+            #         raise StopIteration("Nonlinear solver failed to "
+            #               "converge in {} iterations.".format(max_it))
             if newton_iter == max_it:
-                if MPI.rank(self.comm) == 0:
-                    raise StopIteration("Nonlinear solver failed to "
-                          "converge in {} iterations.".format(max_it))
+                if increase_rtol:
+                    if rtol <= max_rtol:
+                        if mpirank == 0:
+                            print("The value of residual norm: {:8.6f}."
+                                .format(rel_norm))
+                            print("The maximum number of iterations {} has been "
+                                "exceeded with tolerance {}.".format(max_it, 
+                                rtol))
+                        rtol = rtol*ceil(rel_norm/rtol)
+                        if rtol > max_rtol:
+                            if mpirank == 0:
+                                raise StopIteration("The maximum tolerance {} "
+                                "cannot be reached.".format(max_rtol))
+                        if mpirank == 0:
+                            print("Now using larger tolerance {}.".format(rtol))
+                    else:
+                        if mpirank == 0:
+                            print("The value of the residual norm: {:10.8f}."
+                                .fotmat(rel_norm))
+                            raise StopIteration("The maximum tolerance {} "
+                                "cannot be reached.".format(max_rtol))
+                else:
+                    if MPI.rank(self.comm) == 0:
+                        raise StopIteration("Nonlinear solver failed to "
+                              "converge in {} iterations.".format(max_it))
 
             du_list = []
             du_IGA_list = []
@@ -851,12 +899,6 @@ class NonMatchingCoupling(object):
                 v2p(du_list[i].vector()).ghostUpdate()
 
             self.update_mortar_funcs()
-            # for i in range(len(self.mortar_funcs)):
-            #     for j in range(len(self.mortar_funcs[i])):
-            #         for k in range(len(self.mortar_funcs[i][j])):
-            #             A_x_b(self.transfer_matrices_list[i][j][k], 
-            #                   self.spline_funcs[self.mapping_list[i][j]].\
-            #                   vector(), self.mortar_funcs[i][j][k].vector())
 
         if iga_dofs:
             return self.spline_funcs, u_iga
