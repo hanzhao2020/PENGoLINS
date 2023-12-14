@@ -1092,8 +1092,8 @@ class OCCPreprocessing(object):
         np.savez(data_path+filename,
                  name1=self.num_intersections_all,
                  name2=self.mapping_list,
-                 name3=self.intersections_phy_coords,
-                 name4=self.intersections_para_coords,
+                 name3=np.asarray(self.intersections_phy_coords, dtype=object),
+                 name4=np.asarray(self.intersections_para_coords, dtype=object),
                  name5=self.intersections_length,
                  name6=self.mortar_nels)
 
