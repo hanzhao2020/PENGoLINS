@@ -873,10 +873,10 @@ class OCCPreprocessing(object):
         else:
             self.intersections_length = []
             self.mortar_nels = []
+            self.intersections_type = []
 
         for i in range(self.num_surfs):
             for j in range(i+1, self.num_surfs):
-                # print("i: {}, j: {}".format(i, j))
                 bs_intersection = BSplineSurfacesIntersections(
                                     BSpline_surfs_temp[i], 
                                     BSpline_surfs_temp[j], rtol=rtol, 
@@ -889,7 +889,7 @@ class OCCPreprocessing(object):
                     self.mapping_list += [[i, j],]*num_int
                     self.intersection_curves += \
                         bs_intersection.intersections
-
+                    # Determine number of elements for mortar meshes
                     if mortar_nels is None:
                         for k in range(num_int):
                             self.intersections_length += [curve_length(
@@ -906,7 +906,7 @@ class OCCPreprocessing(object):
                                 mortar_nel_count:mortar_nel_count+num_int]
                             mortar_nel_count += num_int
                         elif isinstance(mortar_nels, int):
-                            mortar_nels_temp = [morter_nel]*num_int
+                            mortar_nels_temp = [mortar_nels]*num_int
                             self.mortar_nels += mortar_nels_temp
 
                     # print("mortar_nels_temp:", mortar_nels_temp)
@@ -920,6 +920,173 @@ class OCCPreprocessing(object):
 
         self.num_intersections_all = len(self.intersection_curves)
         self.compute_int_is_done = True
+
+    ######################################################################
+    #### Shape optimization with moving intersections related methods ####
+    ######################################################################
+
+    def check_intersections_type(self, edge_tol=1e-4):
+        """
+        This function is used to check the surface--surface intersections'
+        type. Four types of intersections are considered:
+            1. surf-surf: the intersection is at the middle of two surfaces
+            2. surf-edge: the intersection is at the middle of surface A, and 
+                          is an edge of surface B
+            3. edge-surf: the counterpart of the previous case
+            4. edge-edge: the intersection is the edge of both surfaces
+        After the type for each intersection, an addtional string is used
+        to determine the parametric location for intersections that are 
+        also surface edges, e.g.
+            'na-xi0.1': this string corresponds to type 'surf-edge'. The
+                        parametric coordinates of the mortar mesh w.r.t. 
+                        surface B are all 1s in the 0 direction, i.e.,
+                        xi = [[1.0, 1.0, 1.0, 1.0, 1.0, ..., 1.0],
+                              [0.0, 0.1, 0.2, 0.3, 0.4, ..., 1.0]]^T
+        Possible combinations for parametric coordinate for edge 
+        intersection: {'xi0.0', 'xi0.1', 'xi1.0', 'xi1.1'}
+
+        Parameters
+        ----------
+        edge_tol : the tolerance to treat an intersection as surface edge.
+
+        Returns
+        -------
+        self.intersections_type : list of lists
+        """
+        self.intersections_type = [[None, None] for i in 
+                                    range(self.num_intersections_all)]
+        num_surf_side = 2
+        num_para_dir = 2
+        for int_ind in range(self.num_intersections_all):
+            type_indicator = [None, None]
+            edge_indicator = [None, None]
+            for surf_side in range(num_surf_side):
+                for para_dir in range(num_para_dir):
+                    # Get intersections' parametric coordinates at 
+                    # side `surf_side` with direction `para_dir`
+                    xi_coord = self.intersections_para_coords\
+                               [int_ind][surf_side][:,para_dir]
+                    xi_coord_size = xi_coord.size
+                    val0 = np.sum((xi_coord)**2)
+                    val1 = np.sum((xi_coord-np.ones(xi_coord_size))**2)
+                    edge_pre = 'xi'+str(para_dir)+'.'
+                    if np.sum((xi_coord)**2) < edge_tol:
+                        type_indicator[surf_side] = 'edge'
+                        edge_indicator[surf_side] = edge_pre+'0'
+                        break
+                    elif np.sum((xi_coord-np.ones(xi_coord_size))**2) < edge_tol:
+                        type_indicator[surf_side] = 'edge'
+                        edge_indicator[surf_side] = edge_pre+'1'
+                        break
+                    else:
+                        type_indicator[surf_side] = 'surf'
+                        edge_indicator[surf_side] = 'na'
+            int_type = str(type_indicator[0])+'-'+str(type_indicator[1])
+            edge_side = str(edge_indicator[0])+'-'+str(edge_indicator[1])
+            self.intersections_type[int_ind][0] = int_type
+            self.intersections_type[int_ind][1] = edge_side
+        return self.intersections_type
+
+    def get_diff_intersections(self):
+        """
+        Based on intersections type, determine the intersections' indices
+        that can be differentiated. Except for type 'edge-edge', all the 
+        other three types of intersections can be differentiated. For 
+        types 'surf-edge' and 'edge-surf', determine the edge intersections'
+        parametric coordinates constraint to maintain the type, e.g., for
+        'surf-edge' with indicator 'na-xi0.1', all the first (0-th) rows of 
+        intersection's parametric coordinates w.r.t. surface B are 1.
+
+        Indicator for edge constraint, e.g., 'surf-xi0.1', the indicator is
+        '1-0.1', where the first '1' stands for side, '0' stands for first 
+        parametric location, and the last `1` stands for value.
+        """
+        self.diff_int_inds = []
+        self.diff_int_edge_cons = []
+
+        for int_ind  in range(self.num_intersections_all):
+            int_type = self.intersections_type[int_ind][0]
+            int_edge_side = self.intersections_type[int_ind][1]
+            if int_type == 'surf-surf':
+                self.diff_int_inds += [int_ind]
+                self.diff_int_edge_cons += ['na']
+            elif int_type == 'surf-edge':
+                self.diff_int_inds += [int_ind]
+                cons_indicator = '1-'
+                cons_indicator += int_edge_side[int_edge_side.index('.')-1]
+                cons_indicator += '.'
+                cons_indicator += int_edge_side[int_edge_side.index('.')+1]
+                self.diff_int_edge_cons += [cons_indicator]
+            elif int_type == 'edge-surf':
+                self.diff_int_inds += [int_ind]
+                cons_indicator = '0-'
+                cons_indicator += int_edge_side[int_edge_side.index('.')-1]
+                cons_indicator += '.'
+                cons_indicator += int_edge_side[int_edge_side.index('.')+1]
+                self.diff_int_edge_cons += [cons_indicator]
+        return self.diff_int_inds, self.diff_int_edge_cons
+
+    def set_diff_intersections_indices_by_mapping(self, surf_mappling_list):
+        """
+        Give a list of mapping indices ``surf_mappling_list``, 
+        e.g., [[0,1], [0,2], [1,3]], return associated intersections' 
+        indices.
+        Note: the the entry in the mappling list element should be 
+        smaller than the second entry.
+
+        Parameters
+        ----------
+        surf_mappling_list : list of lists
+
+        Returns
+        -------
+        self.diff_int_inds : list of inds
+        """
+        self.diff_int_inds = []
+        for surf_mapping in surf_mappling_list:
+            inds = [int_ind for int_ind, mapping 
+                    in enumerate(self.mapping_list) 
+                    if surf_mapping == mapping]
+            self.diff_int_inds += inds
+        return self.diff_int_inds
+
+    def set_diff_intersections_indices(self, diff_int_inds):
+        """
+        Set differentiable intersections' indices manually.
+
+        Parameters
+        ----------
+        diff_int_inds : list of inds
+
+        Returns
+        -------
+        self.diff_int_inds : list of inds
+        """
+        self.diff_int_inds = diff_int_inds
+        return self.diff_int_inds
+
+    def set_diff_intersections_edge_cons(self, diff_int_edge_cons):
+        """
+        Set the values in ``self.diff_int_edge_cons`` if it is not 
+        determined automatically, and after calling the method
+        ``set_diff_intersections_indices`` or 
+        ``set_diff_intersections_indices_by_mapping`` (so that the 
+        differentiable intersections are determinted).
+
+        Parameters
+        ----------
+        diff_int_edge_cons : list of strs
+
+        Returns
+        -------
+        self.diff_int_edge_cons : list of inds
+        """
+        self.diff_int_edge_cons = diff_int_edge_cons
+        return self.diff_int_edge_cons
+
+
+    ######################################################################
+    ######################################################################
 
     def start_display(self, display, show_triedron=False):
         """
@@ -1088,6 +1255,14 @@ class OCCPreprocessing(object):
 
         if not os.path.exists(data_path):
             os.mkdir(data_path)
+
+        # np.savez(data_path+filename,
+        #          name1=self.num_intersections_all,
+        #          name2=self.mapping_list,
+        #          name3=self.intersections_phy_coords,
+        #          name4=self.intersections_para_coords,
+        #          name5=self.intersections_length,
+        #          name6=self.mortar_nels)
 
         np.savez(data_path+filename,
                  name1=self.num_intersections_all,

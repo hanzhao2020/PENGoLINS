@@ -637,7 +637,8 @@ class NonMatchingCoupling(object):
                                 fieldsplit_ksp_type=PETSc.KSP.Type.PREONLY,
                                 fieldsplit_pc_type=PETSc.PC.Type.LU, 
                                 rtol=1e-15, max_it=100000, ksp_view=False, 
-                                monitor_residual=False):
+                                monitor_residual=False,
+                                iga_dofs=False):
         """
         Solve the linear non-matching system.
 
@@ -668,6 +669,18 @@ class NonMatchingCoupling(object):
         """
         for i in range(self.num_splines):
             self.spline_funcs[i].vector().zero()
+
+
+        ################
+        if iga_dofs:
+            u_iga_list = []
+            for i in range(self.num_splines):
+                u_FE_temp = Function(self.splines[i].V)
+                u_iga_list += [v2p(multTranspose(self.splines[i].M,
+                                   u_FE_temp.vector())),]
+                self.spline_funcs[i].interpolate(Constant((0.,0.,0.)))
+            u_iga = create_nest_PETScVec(u_iga_list, comm=self.comm)
+        #################
 
         dRt_dut_FE, Rt_FE = self.assemble_nonmatching()
         self.extract_nonmatching_system(Rt_FE, dRt_dut_FE)
@@ -707,7 +720,11 @@ class NonMatchingCoupling(object):
             v2p(self.spline_funcs[i].vector()).ghostUpdate()
             v2p(self.spline_funcs[i].vector()).assemble()
 
-        return self.spline_funcs
+        if iga_dofs:
+            u_iga += self.u
+            return self.spline_funcs, u_iga
+        else:
+            return self.spline_funcs
 
     def solve_nonlinear_nonmatching_problem(self, solver="direct", 
                                 ref_error=None, rtol=1e-3, max_it=20,
@@ -832,6 +849,12 @@ class NonMatchingCoupling(object):
                           "true norm: {:12.8}."
                           .format(newton_iter, rel_norm, current_norm))
                 sys.stdout.flush()
+            ###########################
+            elif newton_iter == max_it:
+                if MPI.rank(self.comm) == 0:
+                    print("Max iteration reached, iteration stopped.")
+                break
+            ###########################
 
             if rel_norm < rtol:
                 if MPI.rank(self.comm) == 0:
@@ -841,36 +864,36 @@ class NonMatchingCoupling(object):
                 rtol = self.rtol_init
                 break
 
+            # # if newton_iter == max_it:
+            # #     if MPI.rank(self.comm) == 0:
+            # #         raise StopIteration("Nonlinear solver failed to "
+            # #               "converge in {} iterations.".format(max_it))
             # if newton_iter == max_it:
-            #     if MPI.rank(self.comm) == 0:
-            #         raise StopIteration("Nonlinear solver failed to "
-            #               "converge in {} iterations.".format(max_it))
-            if newton_iter == max_it:
-                if increase_rtol:
-                    if rtol <= max_rtol:
-                        if mpirank == 0:
-                            print("The value of residual norm: {:8.6f}."
-                                .format(rel_norm))
-                            print("The maximum number of iterations {} has been "
-                                "exceeded with tolerance {}.".format(max_it, 
-                                rtol))
-                        rtol = rtol*ceil(rel_norm/rtol)
-                        if rtol > max_rtol:
-                            if mpirank == 0:
-                                raise StopIteration("The maximum tolerance {} "
-                                "cannot be reached.".format(max_rtol))
-                        if mpirank == 0:
-                            print("Now using larger tolerance {}.".format(rtol))
-                    else:
-                        if mpirank == 0:
-                            print("The value of the residual norm: {:10.8f}."
-                                .fotmat(rel_norm))
-                            raise StopIteration("The maximum tolerance {} "
-                                "cannot be reached.".format(max_rtol))
-                else:
-                    if MPI.rank(self.comm) == 0:
-                        raise StopIteration("Nonlinear solver failed to "
-                              "converge in {} iterations.".format(max_it))
+            #     if increase_rtol:
+            #         if rtol <= max_rtol:
+            #             if mpirank == 0:
+            #                 print("The value of residual norm: {:8.6f}."
+            #                     .format(rel_norm))
+            #                 print("The maximum number of iterations {} has been "
+            #                     "exceeded with tolerance {}.".format(max_it, 
+            #                     rtol))
+            #             rtol = rtol*ceil(rel_norm/rtol)
+            #             if rtol > max_rtol:
+            #                 if mpirank == 0:
+            #                     raise StopIteration("The maximum tolerance {} "
+            #                     "cannot be reached.".format(max_rtol))
+            #             if mpirank == 0:
+            #                 print("Now using larger tolerance {}.".format(rtol))
+            #         else:
+            #             if mpirank == 0:
+            #                 print("The value of the residual norm: {:10.8f}."
+            #                     .fotmat(rel_norm))
+            #                 raise StopIteration("The maximum tolerance {} "
+            #                     "cannot be reached.".format(max_rtol))
+            #     else:
+            #         if MPI.rank(self.comm) == 0:
+            #             raise StopIteration("Nonlinear solver failed to "
+            #                   "converge in {} iterations.".format(max_it))
 
             du_list = []
             du_IGA_list = []
